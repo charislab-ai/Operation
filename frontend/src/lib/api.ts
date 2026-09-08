@@ -339,6 +339,21 @@ export async function listProducts(): Promise<ProductOut[]> {
   return res.json();
 }
 
+export async function createProduct(
+  product: Pick<ProductOut, "name"> &
+    Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description">>,
+): Promise<ProductOut> {
+  const res = await fetch(`${API_BASE}/products`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(product),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product creation failed");
+  }
+  return res.json();
+}
+
 export async function updateProduct(
   name: string,
   patch: Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description">>,

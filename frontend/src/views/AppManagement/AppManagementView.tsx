@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  createProduct,
   deleteProductAsset,
   listProductAssets,
   listProducts,
@@ -16,6 +17,8 @@ interface ProductFormState {
   brand_color: string;
   description: string;
 }
+
+const EMPTY_FORM: ProductFormState = { ios_url: "", android_url: "", brand_color: "", description: "" };
 
 function toFormState(p: ProductOut): ProductFormState {
   return {
@@ -43,6 +46,11 @@ export default function AppManagementView() {
   const [pendingUploadProduct, setPendingUploadProduct] = useState<string | null>(null);
   const [pendingDescription, setPendingDescription] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newForm, setNewForm] = useState<ProductFormState>(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -134,19 +142,127 @@ export default function AppManagementView() {
     }
   };
 
+  const handleCreateProduct = async () => {
+    if (!newName.trim()) {
+      setError("앱 이름을 입력하세요");
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      await createProduct({ name: newName.trim(), ...newForm });
+      setShowAddForm(false);
+      setNewName("");
+      setNewForm(EMPTY_FORM);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col gap-6 overflow-auto p-6 text-slate-100">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold">앱관리</h1>
-        <button
-          onClick={load}
-          className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-        >
-          새로고침
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => {
+              setShowAddForm((v) => !v);
+              setNewName("");
+              setNewForm(EMPTY_FORM);
+            }}
+            className="rounded-md bg-brand-purple px-3 py-1.5 text-sm font-medium text-white"
+          >
+            + 앱 추가
+          </button>
+          <button
+            onClick={load}
+            className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            새로고침
+          </button>
+        </div>
       </div>
 
       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelected} />
+
+      {showAddForm && (
+        <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <h2 className="mb-1 text-sm font-medium text-slate-300">새 앱 등록</h2>
+          <label className="text-xs text-slate-500">
+            앱 이름 (필수, 마케팅 콘텐츠 생성 시 이 이름과 정확히 일치해야 함)
+            <input
+              type="text"
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="예: 새로운앱"
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+            />
+          </label>
+          <label className="text-xs text-slate-500">
+            App Store 링크
+            <input
+              type="text"
+              value={newForm.ios_url}
+              onChange={(e) => setNewForm({ ...newForm, ios_url: e.target.value })}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+            />
+          </label>
+          <label className="text-xs text-slate-500">
+            Google Play 링크
+            <input
+              type="text"
+              value={newForm.android_url}
+              onChange={(e) => setNewForm({ ...newForm, android_url: e.target.value })}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+            />
+          </label>
+          <label className="text-xs text-slate-500">
+            브랜드 컬러 (#RRGGBB)
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                type="color"
+                value={/^#[0-9a-fA-F]{6}$/.test(newForm.brand_color) ? newForm.brand_color : "#886AFF"}
+                onChange={(e) => setNewForm({ ...newForm, brand_color: e.target.value })}
+                className="h-8 w-10 rounded border border-slate-700 bg-slate-800"
+              />
+              <input
+                type="text"
+                value={newForm.brand_color}
+                onChange={(e) => setNewForm({ ...newForm, brand_color: e.target.value })}
+                className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+              />
+            </div>
+          </label>
+          <label className="text-xs text-slate-500">
+            앱 설명 (마케팅 콘텐츠 생성 시 참고)
+            <textarea
+              value={newForm.description}
+              onChange={(e) => setNewForm({ ...newForm, description: e.target.value })}
+              rows={3}
+              className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
+            />
+          </label>
+          <div className="mt-1 flex gap-2">
+            <button
+              onClick={handleCreateProduct}
+              disabled={creating}
+              className="flex-1 rounded-md bg-brand-purple px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {creating ? "등록중..." : "등록"}
+            </button>
+            <button
+              onClick={() => setShowAddForm(false)}
+              className="flex-1 rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && <div className="text-sm text-red-400">{error}</div>}
 
