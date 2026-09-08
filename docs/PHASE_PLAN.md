@@ -104,7 +104,7 @@
 - pgvector 기반 RAG 검색 — 문서 업로드는 수동(`POST /documents`)으로 시작, OpenAI 임베딩 사용. Google Drive/Notion MCP 자동 수집은 이번 Phase 범위 밖(연동 안 된 상태, EXTERNAL_APIS.md 참고)
 - `DevWorker` — RAG로 관련 문서를 찾아 컨텍스트로 활용해 코드 변경 제안/PR 초안을 **텍스트로만** 생성
 - `agent_runs` 최초 실사용 — Supervisor/BizDev/PM/Marketing/DevWorker 실행을 기록해 Metaverse 활동 상태의 근거로 사용
-- **범위 조정(구현 중 결정, 사용자 확인):** Dev Agent는 이번 Phase에서 sping/SNAPTAIL/spingkids 같은 실제 제품 저장소에 파일을 쓰거나 PR을 만들지 않는다 — 위험도가 높아 코드 제안 텍스트 생성까지만 구현. 실제 저장소 쓰기 권한은 신뢰도 검증 후 별도 Phase.
+- **범위 조정(구현 중 결정, 사용자 확인):** Dev Agent는 이번 Phase에서 ChaMu/SNAPTAIL/터치러쉬 같은 실제 제품 저장소에 파일을 쓰거나 PR을 만들지 않는다 — 위험도가 높아 코드 제안 텍스트 생성까지만 구현. 실제 저장소 쓰기 권한은 신뢰도 검증 후 별도 Phase.
 
 **완료 기준(DoD):**
 - [x] RAG: 문서 업로드 → 벡터화 → 자연어 검색으로 재조회 — **실제 OpenAI 임베딩 + pgvector로 검증 완료**

@@ -18,17 +18,34 @@ class ClaudeCLIWithAPIFallback:
         self._cli = ClaudeCLIProvider()
         self._api = ClaudeLLMProvider()
 
-    async def complete(self, messages: list[Message]) -> str:
+    async def complete(
+        self,
+        messages: list[Message],
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> str:
         try:
-            return await self._cli.complete(messages)
+            return await self._cli.complete(messages, thread_id=thread_id, agent_name=agent_name)
         except ClaudeCLIUnavailable:
-            return await self._api.complete(messages)
+            return await self._api.complete(messages, thread_id=thread_id, agent_name=agent_name)
 
-    async def complete_structured(self, messages: list[Message], schema: type[SchemaT]) -> SchemaT:
+    async def complete_structured(
+        self,
+        messages: list[Message],
+        schema: type[SchemaT],
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> SchemaT:
         try:
-            return await self._cli.complete_structured(messages, schema)
+            return await self._cli.complete_structured(
+                messages, schema, thread_id=thread_id, agent_name=agent_name
+            )
         except ClaudeCLIUnavailable:
-            return await self._api.complete_structured(messages, schema)
+            return await self._api.complete_structured(
+                messages, schema, thread_id=thread_id, agent_name=agent_name
+            )
 
 
 @lru_cache

@@ -77,6 +77,84 @@ export async function getDirective(threadId: string): Promise<DirectiveOut> {
   return res.json();
 }
 
+export interface DirectiveListItem {
+  thread_id: string;
+  ceo_directive: string;
+  created_at: string;
+  latest_status: string;
+}
+
+export interface ApprovalRow {
+  id: string;
+  target_type: string;
+  status: string;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+  awaiting_comment: boolean;
+}
+
+export interface AgentRunRow {
+  id: string;
+  agent_name: string;
+  input: Record<string, unknown> | null;
+  output: Record<string, unknown> | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface AiUsageByAgent {
+  agent_name: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  image_count: number;
+  cost_usd: number | null;
+}
+
+export interface AiUsageSummary {
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  total_image_count: number;
+  total_cost_usd: number | null;
+  by_agent: AiUsageByAgent[];
+}
+
+export interface DirectiveDetail {
+  thread_id: string;
+  ceo_directive: string;
+  created_at: string;
+  active_departments: string[];
+  worker_briefs: Record<string, string>;
+  decisions: Record<string, string>;
+  revision_notes: Record<string, string>;
+  outputs: {
+    biz_plan: Record<string, unknown> | null;
+    wbs_plan: Record<string, unknown> | null;
+    marketing_post: Record<string, unknown> | null;
+    dev_proposal: Record<string, unknown> | null;
+  };
+  approvals: ApprovalRow[];
+  agent_runs: AgentRunRow[];
+  ai_usage: AiUsageSummary;
+}
+
+export async function listDirectives(): Promise<DirectiveListItem[]> {
+  const res = await fetch(`${API_BASE}/directives`, { headers: authHeaders() });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive list fetch failed");
+  }
+  return res.json();
+}
+
+export async function getDirectiveDetail(threadId: string): Promise<DirectiveDetail> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/detail`, { headers: authHeaders() });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive detail fetch failed");
+  }
+  return res.json();
+}
+
 export interface TaskOut {
   id: string;
   title: string;
@@ -182,6 +260,96 @@ export async function getMarketingMetrics(): Promise<MarketingMetricOut[]> {
   const res = await fetch(`${API_BASE}/marketing/metrics`, { headers: authHeaders() });
   if (!res.ok) {
     throw new Error((await res.json()).detail ?? "marketing metrics fetch failed");
+  }
+  return res.json();
+}
+
+export interface ProductAssetOut {
+  id: string;
+  product: string;
+  description: string;
+  url: string;
+}
+
+export async function listProductAssets(product?: string): Promise<ProductAssetOut[]> {
+  const qs = product ? `?${new URLSearchParams({ product })}` : "";
+  const res = await fetch(`${API_BASE}/marketing/assets${qs}`, { headers: authHeaders() });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product asset fetch failed");
+  }
+  return res.json();
+}
+
+export async function uploadProductAsset(
+  product: string,
+  description: string,
+  file: File,
+): Promise<ProductAssetOut> {
+  const formData = new FormData();
+  formData.append("product", product);
+  formData.append("description", description);
+  formData.append("file", file);
+  const res = await fetch(`${API_BASE}/marketing/assets`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product asset upload failed");
+  }
+  return res.json();
+}
+
+export async function updateProductAsset(assetId: string, description: string): Promise<ProductAssetOut> {
+  const res = await fetch(`${API_BASE}/marketing/assets/${assetId}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ description }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product asset update failed");
+  }
+  return res.json();
+}
+
+export async function deleteProductAsset(assetId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/marketing/assets/${assetId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product asset delete failed");
+  }
+}
+
+export interface ProductOut {
+  id: string;
+  name: string;
+  ios_url: string | null;
+  android_url: string | null;
+  brand_color: string | null;
+  description: string | null;
+}
+
+export async function listProducts(): Promise<ProductOut[]> {
+  const res = await fetch(`${API_BASE}/products`, { headers: authHeaders() });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product list fetch failed");
+  }
+  return res.json();
+}
+
+export async function updateProduct(
+  name: string,
+  patch: Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description">>,
+): Promise<ProductOut> {
+  const res = await fetch(`${API_BASE}/products/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "product update failed");
   }
   return res.json();
 }

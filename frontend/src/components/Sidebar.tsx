@@ -1,9 +1,10 @@
-export type ViewKey = "metaverse" | "calendar" | "dashboard";
+export type ViewKey = "dashboard" | "calendar" | "workOrders" | "appManagement";
 
 const items: { key: ViewKey; label: string }[] = [
-  { key: "metaverse", label: "Metaverse" },
-  { key: "calendar", label: "Calendar" },
   { key: "dashboard", label: "Dashboard" },
+  { key: "calendar", label: "Calendar" },
+  { key: "workOrders", label: "업무 지시" },
+  { key: "appManagement", label: "앱관리" },
 ];
 
 export default function Sidebar({

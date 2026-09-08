@@ -1,3 +1,5 @@
+from langchain_core.runnables import RunnableConfig
+
 from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.schemas import WBSPlan
@@ -12,9 +14,13 @@ SYSTEM_PROMPT = """당신은 CharisLab의 PM(CPO) 에이전트입니다. CEO의 
 담당 에이전트, 현실적인 시작일/종료일(YYYY-MM-DD, 오늘 이후)을 지정하세요."""
 
 
-async def pm_worker_node(state: OSState) -> dict:
-    run_id = start_run("PMWorker", {"ceo_directive": state["ceo_directive"]})
+async def pm_worker_node(state: OSState, config: RunnableConfig) -> dict:
+    thread_id = config["configurable"]["thread_id"]
+    run_id = start_run("PMWorker", {"ceo_directive": state["ceo_directive"]}, thread_id=thread_id)
     brief = state.get("worker_briefs", {}).get("pm") or state.get("biz_plan_brief") or state["ceo_directive"]
+    revision_note = state.get("revision_notes", {}).get("pm")
+    if revision_note:
+        brief = f"{brief}\n\n[CEO 보완 요청 사유] {revision_note}"
 
     wbs = await llm.complete_structured(
         [
@@ -22,6 +28,8 @@ async def pm_worker_node(state: OSState) -> dict:
             Message(role="user", content=brief),
         ],
         WBSPlan,
+        thread_id=thread_id,
+        agent_name="PMWorker",
     )
 
     supabase = get_supabase()

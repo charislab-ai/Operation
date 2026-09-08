@@ -55,6 +55,7 @@ def make_approval_node(kind: ApprovalKind):
         comment = decision.get("comment", "") if isinstance(decision, dict) else ""
         return {
             "decisions": {kind: decision_value},
+            "revision_notes": {kind: comment} if decision_value == "revision" and comment else {},
             "messages": [
                 {"role": "user", "content": f"[텔레그램 승인 응답:{kind}] {decision_value} {comment}".strip()}
             ],

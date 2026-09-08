@@ -4,7 +4,7 @@
 
 ## 1. 배경 및 목표
 
-CharisLab은 대표(CEO) 1인 체제로 SPING, SnapTale(SNAPTAIL), spingkids 등 여러 제품을 동시에 운영한다. 현재는 기획-개발-마케팅-회계 업무가 각 채널(문서, 메신저, 개별 툴)에 흩어져 있어 대표가 전체 현황을 한눈에 파악하기 어렵다.
+CharisLab은 대표(CEO) 1인 체제로 여러 제품을 동시에 운영한다. **실제 출시된 제품(2026-09-08 기준)**: ChaMu(iOS 전용, App Store id6801702365), SNAPTAIL(구 "SnapTale"/"아이 포토북", iOS id6760613767 · Android `com.charisro.snaptail`), 터치러쉬(iOS id6751933591 · Android `com.charisro.TouchRush`). 현재는 기획-개발-마케팅-회계 업무가 각 채널(문서, 메신저, 개별 툴)에 흩어져 있어 대표가 전체 현황을 한눈에 파악하기 어렵다.
 
 **목표:** CEO의 지시 한 줄이 C-Level AI 임원진(CFO/CTO/CMO/CPO) 회의를 거쳐 실무 에이전트의 실제 작업(코드/포스팅/회계처리)으로 이어지고, 그 결과가 실시간 대시보드/캘린더로 시각화되며, 중요한 결정은 텔레그램으로 대표에게 최종 결재받는 **폐쇄형 AI 회사 운영체제**를 구축한다.
 

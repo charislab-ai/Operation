@@ -2,16 +2,11 @@ import { useEffect, useState } from "react";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import Sidebar, { ViewKey } from "./components/Sidebar";
 import DirectiveBar from "./components/DirectiveBar";
-import MetaverseView from "./views/Metaverse/MetaverseView";
 import CalendarView from "./views/Calendar/CalendarView";
 import DashboardView from "./views/Dashboard/DashboardView";
+import WorkOrdersView from "./views/WorkOrders/WorkOrdersView";
+import AppManagementView from "./views/AppManagement/AppManagementView";
 import { getCurrentUser, loginWithGoogle, setSessionToken } from "./lib/api";
-
-const views: Record<ViewKey, () => JSX.Element> = {
-  metaverse: MetaverseView,
-  calendar: CalendarView,
-  dashboard: DashboardView,
-};
 
 export default function App() {
   const [user, setUser] = useState<{ email: string } | null>(null);
@@ -55,15 +50,16 @@ export default function App() {
     );
   }
 
-  const ActiveView = views[active];
-
   return (
     <div className="flex h-screen bg-slate-900">
       <Sidebar active={active} onChange={setActive} />
       <div className="flex flex-1 flex-col overflow-hidden">
         <DirectiveBar />
         <main className="flex-1 overflow-auto">
-          <ActiveView />
+          {active === "dashboard" && <DashboardView onNavigate={setActive} />}
+          {active === "calendar" && <CalendarView />}
+          {active === "workOrders" && <WorkOrdersView />}
+          {active === "appManagement" && <AppManagementView />}
         </main>
       </div>
     </div>

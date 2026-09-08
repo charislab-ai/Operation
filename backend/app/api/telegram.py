@@ -3,7 +3,7 @@ from langgraph.types import Command
 
 from app.config import settings
 from app.db.supabase_client import get_supabase
-from app.tools.telegram_bot import acknowledge_decision, get_bot, send_approval_request
+from app.tools.telegram_bot import acknowledge_decision, get_bot, prompt_for_comment, send_approval_request
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
@@ -11,7 +11,9 @@ router = APIRouter(prefix="/telegram", tags=["telegram"])
 GRAPH_BASED_TARGET_TYPES = {"task_plan", "marketing_post", "dev_proposal"}
 
 
-async def _handle_graph_resume(request: Request, supabase, approval_id: str, decision: str) -> None:
+async def _handle_graph_resume(
+    request: Request, supabase, approval_id: str, decision: str, comment: str = ""
+) -> None:
     approval_row = (
         supabase.table("approvals")
         .select("thread_id, telegram_msg_id, payload, target_type, interrupt_id")
@@ -29,10 +31,11 @@ async def _handle_graph_resume(request: Request, supabase, approval_id: str, dec
     config = {"configurable": {"thread_id": thread_id}}
     # Goal형 병렬 실행에서는 같은 thread_id 안에 다른 부서의 interrupt가 동시에 더 남아있을 수 있어
     # interrupt_id로 "이 카드에 해당하는 interrupt만" 재개한다(나머지는 그대로 대기 유지).
-    resume_value = {interrupt_id: {"decision": decision, "comment": ""}} if interrupt_id else {
-        "decision": decision,
-        "comment": "",
-    }
+    resume_value = (
+        {interrupt_id: {"decision": decision, "comment": comment}}
+        if interrupt_id
+        else {"decision": decision, "comment": comment}
+    )
     result = await graph.ainvoke(Command(resume=resume_value), config)
 
     supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
@@ -96,6 +99,46 @@ async def _handle_finance_entry(supabase, approval_id: str, decision: str) -> No
         await acknowledge_decision(int(original_message_id), "finance_entry", original_payload, decision)
 
 
+async def _handle_revision_button(supabase, approval_id: str) -> None:
+    """보완 버튼: 아직 재개하지 않고 CEO의 사유 답장을 기다린다(카드를 답장 안내로 바꿔둠)."""
+    row = (
+        supabase.table("approvals")
+        .select("telegram_msg_id, payload, target_type")
+        .eq("id", approval_id)
+        .single()
+        .execute()
+    )
+    supabase.table("approvals").update({"awaiting_comment": True}).eq("id", approval_id).execute()
+    message_id = row.data.get("telegram_msg_id")
+    if message_id:
+        await prompt_for_comment(int(message_id), row.data["target_type"], row.data["payload"])
+
+
+async def _handle_comment_reply(request: Request, supabase, reply_to_message_id: int, comment: str) -> None:
+    """CEO가 보완 안내 카드에 답장으로 사유를 남기면, 그 카드에 해당하는 approval을 찾아
+    실제로 그래프를 revision으로 재개한다. telegram_msg_id로 매칭하므로 병렬로 여러 카드가
+    동시에 대기 중이어도(Goal형 병렬 실행) 정확히 그 카드만 처리된다."""
+    row = (
+        supabase.table("approvals")
+        .select("id, target_type")
+        .eq("telegram_msg_id", str(reply_to_message_id))
+        .eq("awaiting_comment", True)
+        .eq("status", "pending")
+        .limit(1)
+        .execute()
+    )
+    if not row.data:
+        return  # 보완 대기 중이 아닌 메시지에 대한 답장 - 무시
+
+    approval_id = row.data[0]["id"]
+    target_type = row.data[0]["target_type"]
+    supabase.table("approvals").update({"awaiting_comment": False}).eq("id", approval_id).execute()
+
+    if target_type in GRAPH_BASED_TARGET_TYPES:
+        await _handle_graph_resume(request, supabase, approval_id, "revision", comment)
+    # finance_entry는 보완 버튼 자체가 없어(2분기) 이 경로를 타지 않는다.
+
+
 @router.post("/webhook")
 async def telegram_webhook(request: Request) -> dict:
     # 실배포 후 setWebhook(secret_token=...)으로 등록하면 텔레그램이 매 요청에 이 헤더를 실어보낸다.
@@ -106,26 +149,33 @@ async def telegram_webhook(request: Request) -> dict:
             raise HTTPException(status_code=403, detail="invalid webhook secret")
 
     update = await request.json()
-    callback_query = update.get("callback_query")
-    if not callback_query:
-        return {"ok": True}
-
-    try:
-        await get_bot().answer_callback_query(callback_query["id"])
-    except Exception:
-        # 오래된/중복/테스트용 콜백이면 Telegram이 응답을 거부할 수 있다 — 버튼 스피너만 못 없앨 뿐
-        # 아래 승인 처리 로직 자체는 계속 진행해야 하므로 무시한다.
-        pass
-
-    parts = callback_query.get("data", "").split(":")
-    if len(parts) != 3:
-        return {"ok": True}
-    target_type, approval_id, decision = parts
-
     supabase = get_supabase()
-    if target_type in GRAPH_BASED_TARGET_TYPES:
-        await _handle_graph_resume(request, supabase, approval_id, decision)
-    elif target_type == "finance_entry":
-        await _handle_finance_entry(supabase, approval_id, decision)
+
+    callback_query = update.get("callback_query")
+    if callback_query:
+        try:
+            await get_bot().answer_callback_query(callback_query["id"])
+        except Exception:
+            # 오래된/중복/테스트용 콜백이면 Telegram이 응답을 거부할 수 있다 — 버튼 스피너만 못 없앨 뿐
+            # 아래 승인 처리 로직 자체는 계속 진행해야 하므로 무시한다.
+            pass
+
+        parts = callback_query.get("data", "").split(":")
+        if len(parts) != 3:
+            return {"ok": True}
+        target_type, approval_id, decision = parts
+
+        if decision == "revision":
+            await _handle_revision_button(supabase, approval_id)
+        elif target_type in GRAPH_BASED_TARGET_TYPES:
+            await _handle_graph_resume(request, supabase, approval_id, decision)
+        elif target_type == "finance_entry":
+            await _handle_finance_entry(supabase, approval_id, decision)
+        return {"ok": True}
+
+    message = update.get("message")
+    reply_to = message.get("reply_to_message") if message else None
+    if message and reply_to and message.get("text"):
+        await _handle_comment_reply(request, supabase, reply_to["message_id"], message["text"])
 
     return {"ok": True}

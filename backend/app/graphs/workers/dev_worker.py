@@ -1,3 +1,5 @@
+from langchain_core.runnables import RunnableConfig
+
 from app.db.agent_runs import finish_run, start_run
 from app.graphs.schemas import DevProposal
 from app.graphs.state import OSState
@@ -12,9 +14,13 @@ SYSTEM_PROMPT = """당신은 CharisLab의 개발(CTO) 에이전트입니다. CEO
 관련 문서(RAG 검색 결과)가 주어지면 그 내용을 근거로 더 구체적인 제안을 작성하세요."""
 
 
-async def dev_worker_node(state: OSState) -> dict:
-    run_id = start_run("DevWorker", {"ceo_directive": state["ceo_directive"]})
+async def dev_worker_node(state: OSState, config: RunnableConfig) -> dict:
+    thread_id = config["configurable"]["thread_id"]
+    run_id = start_run("DevWorker", {"ceo_directive": state["ceo_directive"]}, thread_id=thread_id)
     brief = state.get("worker_briefs", {}).get("dev") or state["ceo_directive"]
+    revision_note = state.get("revision_notes", {}).get("dev")
+    if revision_note:
+        brief = f"{brief}\n\n[CEO 보완 요청 사유] {revision_note}"
 
     related_docs = await rag_search(brief, limit=3)
     context = (
@@ -29,6 +35,8 @@ async def dev_worker_node(state: OSState) -> dict:
             Message(role="user", content=f"{brief}\n\n{context}"),
         ],
         DevProposal,
+        thread_id=thread_id,
+        agent_name="DevWorker",
     )
 
     dev_proposal = proposal.model_dump()

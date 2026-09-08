@@ -1,14 +1,23 @@
 import random
 from datetime import date
 
+from langchain_core.runnables import RunnableConfig
+
+from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.state import OSState
 from app.tools.social import get_social_poster
 from app.tools.social.base import PostContent
 
 
-async def publish_worker_node(state: OSState) -> dict:
+async def publish_worker_node(state: OSState, config: RunnableConfig) -> dict:
+    thread_id = config["configurable"]["thread_id"]
     post = state["marketing_post"]
+    run_id = start_run(
+        "PublishWorker",
+        {"product": post["product"], "channel": post["channel"]},
+        thread_id=thread_id,
+    )
     poster = get_social_poster(post["channel"], post["product"])
     result = await poster.post(PostContent(caption=post["caption"], image_urls=post["image_urls"]))
 
@@ -30,6 +39,15 @@ async def publish_worker_node(state: OSState) -> dict:
         }
     ).execute()
 
+    finish_run(
+        run_id,
+        {
+            "post_id": result.post_id,
+            "impressions": impressions,
+            "clicks": clicks,
+            "conversions": conversions,
+        },
+    )
     return {
         "messages": [
             {

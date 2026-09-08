@@ -1,3 +1,5 @@
+from langchain_core.runnables import RunnableConfig
+
 from app.db.agent_runs import finish_run, start_run
 from app.graphs.schemas import GoalPlan
 from app.graphs.state import OSState
@@ -19,14 +21,17 @@ CEO의 지시를 읽고 이번 지시를 처리하는 데 어떤 부서가 필�
 자동으로 그 다음에 이어지므로 routes에 pm을 따로 넣지 마세요."""
 
 
-async def supervisor_node(state: OSState) -> dict:
-    run_id = start_run("Supervisor", {"ceo_directive": state["ceo_directive"]})
+async def supervisor_node(state: OSState, config: RunnableConfig) -> dict:
+    thread_id = config["configurable"]["thread_id"]
+    run_id = start_run("Supervisor", {"ceo_directive": state["ceo_directive"]}, thread_id=thread_id)
     plan = await llm.complete_structured(
         [
             Message(role="system", content=SYSTEM_PROMPT),
             Message(role="user", content=state["ceo_directive"]),
         ],
         GoalPlan,
+        thread_id=thread_id,
+        agent_name="Supervisor",
     )
 
     routes = plan.routes or ["pm"]

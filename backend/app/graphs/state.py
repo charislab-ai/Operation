@@ -19,6 +19,9 @@ class OSState(TypedDict, total=False):
     # interrupt 재개 시 이미 완료된 다른 부서의 승인 노드도 캐시된 값으로 같은 틱에 다시 완료 처리되면서
     # 함께 이 키를 쓸 수 있어(LangGraph의 재개 재실행 특성) reducer가 필요함
     decisions: Annotated[dict[str, str], _merge_dicts]
+    # 보완(revision) 선택 시 CEO가 텔레그램 답장으로 남긴 사유 - 부서별로 구분(같은 이유로 reducer 필요).
+    # 해당 Worker가 재실행될 때 이걸 브리핑에 반영해야 진짜로 "보완"이 된다.
+    revision_notes: Annotated[dict[str, str], _merge_dicts]
     pending_approvals: list[dict]
     schedule_progress: dict  # PMWorker가 갱신, Supervisor 라우팅 근거 (ARCHITECTURE.md §2)
     marketing_metrics_summary: dict  # MarketingWorker가 갱신 (Phase 3), Supervisor 라우팅 근거

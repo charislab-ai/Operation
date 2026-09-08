@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     llm_provider: str = "claude"
     anthropic_model: str = "claude-sonnet-5"
     image_provider: str = "mock"
+    image_quality: str = "medium"  # gpt-image-1: low|medium|high - high는 장당 비용이 커서 기본은 medium
     video_provider: str = "sora"
     vision_provider: str = "gemini"
     embedding_provider: str = "openai"

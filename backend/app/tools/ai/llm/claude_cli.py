@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from app.db.ai_usage import log_ai_usage
 from app.tools.ai.llm.base import Message, SchemaT
 
 # Goal형 병렬 실행으로 여러 Worker가 동시에 LLM을 호출할 수 있게 되면서 실제로 겪은 문제:
@@ -61,17 +62,49 @@ async def _run_cli(system: str | None, prompt: str, json_schema: dict | None = N
     return response
 
 
+def _log_cli_usage(response: dict, thread_id: str | None, agent_name: str | None) -> None:
+    usage = response.get("usage") or {}
+    total = None
+    if usage.get("input_tokens") is not None or usage.get("output_tokens") is not None:
+        total = (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+    log_ai_usage(
+        thread_id=thread_id,
+        agent_name=agent_name,
+        provider="claude_cli",
+        kind="llm",
+        input_tokens=usage.get("input_tokens"),
+        output_tokens=usage.get("output_tokens"),
+        total_tokens=total,
+        cost_usd=response.get("total_cost_usd"),  # CLI가 주는 실제 $ 금액 - 유일하게 신뢰 가능한 비용 소스
+    )
+
+
 class ClaudeCLIProvider:
     """Claude Code CLI(구독 플랜)를 통해 추론한다. 실패/한도초과 시 ClaudeCLIUnavailable을 던진다."""
 
-    async def complete(self, messages: list[Message]) -> str:
+    async def complete(
+        self,
+        messages: list[Message],
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> str:
         system, prompt = _split_system_and_prompt(messages)
         response = await _run_cli(system, prompt)
+        _log_cli_usage(response, thread_id, agent_name)
         return response.get("result", "")
 
-    async def complete_structured(self, messages: list[Message], schema: type[SchemaT]) -> SchemaT:
+    async def complete_structured(
+        self,
+        messages: list[Message],
+        schema: type[SchemaT],
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> SchemaT:
         system, prompt = _split_system_and_prompt(messages)
         response = await _run_cli(system, prompt, json_schema=schema.model_json_schema())
+        _log_cli_usage(response, thread_id, agent_name)
         structured = response.get("structured_output")
         if structured is None:
             raise ClaudeCLIUnavailable("claude CLI가 structured_output을 반환하지 않음")

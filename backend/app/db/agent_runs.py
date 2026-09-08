@@ -14,13 +14,11 @@ def _notify_status_change() -> None:
     loop.create_task(manager.broadcast(compute_agent_status()))
 
 
-def start_run(agent_name: str, input_data: dict) -> str:
-    result = (
-        get_supabase()
-        .table("agent_runs")
-        .insert({"agent_name": agent_name, "input": input_data})
-        .execute()
-    )
+def start_run(agent_name: str, input_data: dict, thread_id: str | None = None) -> str:
+    row = {"agent_name": agent_name, "input": input_data}
+    if thread_id:
+        row["thread_id"] = thread_id
+    result = get_supabase().table("agent_runs").insert(row).execute()
     _notify_status_change()
     return result.data[0]["id"]
 

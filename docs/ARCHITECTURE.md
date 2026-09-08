@@ -38,7 +38,7 @@
   - `MarketingWorker` — CEO 지시에서 product/channel/caption/image_prompt를 구조화 추출 → 이미지 생성 provider 호출 → `HumanApprovalNode`로 이동. **구현 노트(Phase 3):** Canva/Figma MCP는 Claude Code 세션 전용 커넥터라 독립 FastAPI 백엔드에서 직접 호출하기 어려워 이번 Phase에서 제외 — 실제 크리에이티브는 이미지 생성 provider(DALL-E, `IMAGE_PROVIDER` 미고정)로 대체. DesignWorker/Canva·Figma 연동은 별도 MCP 클라이언트 구현이 필요해 이후 Phase로 미룸
   - `PublishWorker` — 승인된 마케팅 콘텐츠를 `PostToInstagram`/`PostToTikTok`/`PostToThreads` 툴(`app/tools/social/`)로 게시 → `marketing_metrics`에 지표 기록(Mock 단계에선 더미 값)
   - `FinanceWorker` — 영수증 이미지를 **Gemini(Vision)**로 OCR·항목 인식 → 복식부기 분개 생성 (§7 참고). **구현 노트(Phase 2):** 이건 LangGraph 노드가 아니라 `app/workers/finance_worker.py`의 순수 함수로 구현됨 — 입력이 CEO 텍스트 지시가 아니라 파일 업로드이고 흐름이 "OCR→매핑→승인" 선형이라 분기/재작업이 없어 interrupt/checkpointer가 불필요했음. 승인은 Phase 1의 `approvals` 테이블+텔레그램 인프라를 `target_type='finance_entry'`로 재사용(`POST /finance/receipts` → 직접 승인 카드 전송 → webhook이 그래프 resume 없이 `finance_entries.status`만 갱신)
-  - `DevWorker` — RAG로 관련 문서 검색 → Claude로 코드 변경 제안(제목/요약/영향 파일/의사코드/PR 초안) 생성. **구현 노트(Phase 4):** 실제 git 저장소에 파일을 쓰거나 PR을 생성하지 않는다 — sping/SNAPTAIL/spingkids 같은 실제 운영 제품 저장소에 자동으로 코드를 쓰는 건 위험도가 높아, 신뢰도 검증 전까지는 텍스트 제안만 생성하고 사람이 직접 반영한다(신규 앱 Flutter 개발 등 실제 파일시스템 접근은 이후 Phase)
+  - `DevWorker` — RAG로 관련 문서 검색 → Claude로 코드 변경 제안(제목/요약/영향 파일/의사코드/PR 초안) 생성. **구현 노트(Phase 4):** 실제 git 저장소에 파일을 쓰거나 PR을 생성하지 않는다 — ChaMu/SNAPTAIL/터치러쉬 같은 실제 운영 제품 저장소에 자동으로 코드를 쓰는 건 위험도가 높아, 신뢰도 검증 전까지는 텍스트 제안만 생성하고 사람이 직접 반영한다(신규 앱 Flutter 개발 등 실제 파일시스템 접근은 이후 Phase)
   - `BizDevWorker` (신사업개발/CSO) — CEO 아이디어 인풋 → 시장성 검토 → 사업기획서 초안 → PMWorker에 실행 이관
 - **HumanApprovalNode**: LangGraph `interrupt()`로 그래프 실행을 일시정지하고 텔레그램 webhook 응답을 대기. 승인/반려/보완 3분기 처리 후 재개.
 
@@ -104,7 +104,7 @@ create table schedules (
 -- 마케팅
 create table marketing_metrics (
   id uuid primary key default gen_random_uuid(),
-  product text not null,              -- 'SPING'|'SnapTale'|...
+  product text not null,              -- 'ChaMu'|'SNAPTAIL'|'터치러쉬'
   channel text not null,               -- 'instagram'|'facebook'|'tiktok'|'threads'
   metric_date date not null,
   impressions int default 0,

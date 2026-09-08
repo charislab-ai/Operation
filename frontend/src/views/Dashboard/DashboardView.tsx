@@ -1,48 +1,26 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   getAuditLog,
   getFinanceSummary,
   getMarketingMetrics,
+  listDirectives,
+  listProductAssets,
   listTasks,
   uploadReceipt,
   type AuditLogEntry,
+  type DirectiveListItem,
   type FinanceSummaryPoint,
   type MarketingMetricOut,
+  type ProductAssetOut,
   type TaskOut,
 } from "../../lib/api";
-
-const STATUS_COLOR: Record<string, string> = {
-  todo: "#64748b",
-  in_progress: "#886AFF",
-  done: "#22c55e",
-};
+import type { ViewKey } from "../../components/Sidebar";
 
 const STATUS_LABEL: Record<string, string> = {
   todo: "대기",
   in_progress: "진행중",
   done: "완료",
-};
-
-const CHANNEL_COLOR: Record<string, string> = {
-  instagram: "#e1306c",
-  facebook: "#1877f2",
-  tiktok: "#69c9d0",
-  threads: "#e4e4e4",
 };
 
 const APPROVAL_STATUS_STYLE: Record<string, string> = {
@@ -52,11 +30,39 @@ const APPROVAL_STATUS_STYLE: Record<string, string> = {
   revision: "bg-amber-900 text-amber-300",
 };
 
-export default function DashboardView() {
+function StatCard({
+  label,
+  value,
+  detail,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  onClick?: () => void;
+}) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      onClick={onClick}
+      className={`rounded-lg border border-slate-800 bg-slate-900 p-4 text-left ${
+        onClick ? "hover:border-brand-purple" : ""
+      }`}
+    >
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold text-slate-100">{value}</div>
+      {detail && <div className="mt-1 text-xs text-slate-500">{detail}</div>}
+    </Tag>
+  );
+}
+
+export default function DashboardView({ onNavigate }: { onNavigate: (key: ViewKey) => void }) {
   const [tasks, setTasks] = useState<TaskOut[]>([]);
   const [summary, setSummary] = useState<FinanceSummaryPoint[]>([]);
   const [marketingMetrics, setMarketingMetrics] = useState<MarketingMetricOut[]>([]);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[]>([]);
+  const [directives, setDirectives] = useState<DirectiveListItem[]>([]);
+  const [assets, setAssets] = useState<ProductAssetOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -65,12 +71,21 @@ export default function DashboardView() {
 
   const load = () => {
     setLoading(true);
-    Promise.all([listTasks(), getFinanceSummary(), getMarketingMetrics(), getAuditLog()])
-      .then(([taskData, summaryData, marketingData, auditData]) => {
+    Promise.all([
+      listTasks(),
+      getFinanceSummary(),
+      getMarketingMetrics(),
+      getAuditLog(),
+      listDirectives(),
+      listProductAssets(),
+    ])
+      .then(([taskData, summaryData, marketingData, auditData, directiveData, assetData]) => {
         setTasks(taskData);
         setSummary(summaryData);
         setMarketingMetrics(marketingData);
         setAuditLog(auditData);
+        setDirectives(directiveData);
+        setAssets(assetData);
         setError(null);
       })
       .catch((e) => setError((e as Error).message))
@@ -97,23 +112,13 @@ export default function DashboardView() {
     }
   };
 
-  const taskStatusData = Object.entries(
-    tasks.reduce<Record<string, number>>((acc, t) => {
-      acc[t.status] = (acc[t.status] ?? 0) + 1;
-      return acc;
-    }, {}),
-  ).map(([status, count]) => ({ status, label: STATUS_LABEL[status] ?? status, count }));
-
-  const channels = Array.from(new Set(marketingMetrics.map((m) => m.channel)));
-  const metricsByDate = new Map<string, Record<string, number>>();
-  for (const m of marketingMetrics) {
-    const row = metricsByDate.get(m.metric_date) ?? {};
-    row[m.channel] = (row[m.channel] ?? 0) + m.impressions;
-    metricsByDate.set(m.metric_date, row);
-  }
-  const marketingChartData = Array.from(metricsByDate.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([metric_date, byChannel]) => ({ metric_date, ...byChannel }));
+  const taskCounts = tasks.reduce<Record<string, number>>((acc, t) => {
+    acc[t.status] = (acc[t.status] ?? 0) + 1;
+    return acc;
+  }, {});
+  const pendingDirectives = directives.filter((d) => d.latest_status === "pending").length;
+  const totalImpressions = marketingMetrics.reduce((sum, m) => sum + m.impressions, 0);
+  const recentActivity = auditLog.slice(0, 5);
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-auto p-6 text-slate-100">
@@ -149,137 +154,90 @@ export default function DashboardView() {
       {loading ? (
         <div className="text-slate-400">불러오는 중...</div>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <h2 className="mb-4 text-sm font-medium text-slate-300">업무 처리 현황</h2>
-            {taskStatusData.length === 0 ? (
-              <div className="text-sm text-slate-500">아직 등록된 Task가 없습니다.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie
-                    data={taskStatusData}
-                    dataKey="count"
-                    nameKey="label"
-                    innerRadius={60}
-                    outerRadius={100}
-                    paddingAngle={2}
-                  >
-                    {taskStatusData.map((entry) => (
-                      <Cell key={entry.status} fill={STATUS_COLOR[entry.status] ?? "#64748b"} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+        <>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <StatCard
+              label="업무 지시"
+              value={`${directives.length}건`}
+              detail={pendingDirectives > 0 ? `승인 대기 ${pendingDirectives}건` : "대기중인 승인 없음"}
+              onClick={() => onNavigate("workOrders")}
+            />
+            <StatCard
+              label="일정 / Task"
+              value={`${tasks.length}건`}
+              detail={`대기 ${taskCounts.todo ?? 0} · 진행중 ${taskCounts.in_progress ?? 0} · 완료 ${taskCounts.done ?? 0}`}
+              onClick={() => onNavigate("calendar")}
+            />
+            <StatCard
+              label="마케팅 노출수 합계"
+              value={totalImpressions.toLocaleString()}
+              detail={`${marketingMetrics.length}건 게시`}
+              onClick={() => onNavigate("workOrders")}
+            />
+            <StatCard
+              label="등록된 앱 스크린샷"
+              value={`${assets.length}장`}
+              detail="앱관리에서 관리"
+              onClick={() => onNavigate("appManagement")}
+            />
           </div>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-            <h2 className="mb-4 text-sm font-medium text-slate-300">현금 흐름 (승인된 지출, 월별)</h2>
-            {summary.length === 0 ? (
-              <div className="text-sm text-slate-500">승인된 회계 분개가 아직 없습니다.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={summary}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="period" stroke="#94a3b8" />
-                  <YAxis stroke="#94a3b8" />
-                  <Tooltip
-                    formatter={(value) => `${Number(value).toLocaleString()}원`}
-                    contentStyle={{ background: "#1e293b", border: "1px solid #334155" }}
-                  />
-                  <Bar dataKey="expense" name="지출" fill="#886AFF" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 lg:col-span-2">
-            <h2 className="mb-4 text-sm font-medium text-slate-300">채널별 마케팅 지표 추이 (노출수)</h2>
-            {marketingChartData.length === 0 ? (
-              <div className="text-sm text-slate-500">아직 게시된 마케팅 콘텐츠가 없습니다.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={280}>
-                <LineChart data={marketingChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="metric_date" stroke="#94a3b8" />
-                  <YAxis stroke="#94a3b8" />
-                  <Tooltip contentStyle={{ background: "#1e293b", border: "1px solid #334155" }} />
-                  <Legend />
-                  {channels.map((channel) => (
-                    <Line
-                      key={channel}
-                      type="monotone"
-                      dataKey={channel}
-                      name={channel}
-                      stroke={CHANNEL_COLOR[channel] ?? "#886AFF"}
-                      strokeWidth={2}
-                      dot={{ r: 3 }}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <h2 className="mb-4 text-sm font-medium text-slate-300">현금 흐름 (승인된 지출, 월별)</h2>
+              {summary.length === 0 ? (
+                <div className="text-sm text-slate-500">승인된 회계 분개가 아직 없습니다.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={summary}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="period" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip
+                      formatter={(value) => `${Number(value).toLocaleString()}원`}
+                      contentStyle={{ background: "#1e293b", border: "1px solid #334155" }}
                     />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
-            )}
-          </div>
+                    <Bar dataKey="expense" name="지출" fill="#886AFF" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
 
-          <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 lg:col-span-2">
-            <h2 className="mb-4 text-sm font-medium text-slate-300">감사 로그 (최근 활동)</h2>
-            {auditLog.length === 0 ? (
-              <div className="text-sm text-slate-500">아직 기록된 활동이 없습니다.</div>
-            ) : (
-              <div className="max-h-80 overflow-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="sticky top-0 bg-slate-900 text-slate-500">
-                    <tr>
-                      <th className="pb-2 pr-4 font-medium">시각</th>
-                      <th className="pb-2 pr-4 font-medium">종류</th>
-                      <th className="pb-2 pr-4 font-medium">내용</th>
-                      <th className="pb-2 font-medium">상태</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-slate-300">
-                    {auditLog.map((entry, i) => (
-                      <tr key={i} className="border-t border-slate-800">
-                        <td className="py-2 pr-4 whitespace-nowrap text-slate-500">
-                          {new Date(entry.timestamp).toLocaleString()}
-                        </td>
-                        <td className="py-2 pr-4 whitespace-nowrap">
-                          {entry.kind === "agent_run" ? "에이전트 실행" : "승인 요청"}
-                        </td>
-                        <td className="py-2 pr-4">
-                          {entry.kind === "agent_run" ? entry.agent_name : entry.target_type}
-                        </td>
-                        <td className="py-2">
-                          {entry.kind === "agent_run" ? (
-                            <span
-                              className={`rounded px-2 py-0.5 ${
-                                entry.finished_at
-                                  ? "bg-slate-700 text-slate-300"
-                                  : "bg-brand-purple/30 text-brand-purple"
-                              }`}
-                            >
-                              {entry.finished_at ? "완료" : "진행중"}
-                            </span>
-                          ) : (
-                            <span
-                              className={`rounded px-2 py-0.5 ${
-                                APPROVAL_STATUS_STYLE[entry.status] ?? "bg-slate-700 text-slate-300"
-                              }`}
-                            >
-                              {entry.status}
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <button
+              onClick={() => onNavigate("workOrders")}
+              className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-left hover:border-brand-purple"
+            >
+              <h2 className="mb-4 text-sm font-medium text-slate-300">최근 활동 (자세히 보기 →)</h2>
+              {recentActivity.length === 0 ? (
+                <div className="text-sm text-slate-500">아직 기록된 활동이 없습니다.</div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {recentActivity.map((entry, i) => (
+                    <div key={i} className="flex items-center justify-between text-xs">
+                      <span className="text-slate-500">{new Date(entry.timestamp).toLocaleString()}</span>
+                      <span className="truncate px-2 text-slate-300">
+                        {entry.kind === "agent_run" ? entry.agent_name : entry.target_type}
+                      </span>
+                      {entry.kind === "agent_run" ? (
+                        <span
+                          className={`rounded px-2 py-0.5 ${
+                            entry.finished_at ? "bg-slate-700 text-slate-300" : "bg-brand-purple/30 text-brand-purple"
+                          }`}
+                        >
+                          {entry.finished_at ? "완료" : "진행중"}
+                        </span>
+                      ) : (
+                        <span className={`rounded px-2 py-0.5 ${APPROVAL_STATUS_STYLE[entry.status] ?? "bg-slate-700 text-slate-300"}`}>
+                          {STATUS_LABEL[entry.status] ?? entry.status}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

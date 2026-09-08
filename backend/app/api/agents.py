@@ -8,7 +8,7 @@ from app.ws.manager import ConnectionManager
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-KNOWN_AGENTS = ["Supervisor", "BizDevWorker", "PMWorker", "MarketingWorker", "DevWorker"]
+KNOWN_AGENTS = ["Supervisor", "BizDevWorker", "PMWorker", "MarketingWorker", "DevWorker", "PublishWorker"]
 ACTIVE_WINDOW = timedelta(minutes=5)
 
 manager = ConnectionManager()

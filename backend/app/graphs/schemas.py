@@ -42,12 +42,18 @@ class CardSlide(BaseModel):
     subtext: str = Field(description="헤드라인 아래 들어갈 보조 설명 문구, 25자 내외")
     image_prompt: str = Field(
         description="이 슬라이드 배경으로 쓸 일러스트/사진 생성 프롬프트 - 컬러풀하고 실사에 가까운 "
-        "스타일, 텍스트는 이미지 안에 넣지 말 것(헤드라인/보조문구는 별도로 합성됨)"
+        "스타일, 텍스트는 이미지 안에 넣지 말 것(헤드라인/보조문구는 별도로 합성됨). "
+        "real_screenshot_asset_id를 지정한 슬라이드에서는 이 필드가 쓰이지 않으니 빈 문자열로 둘 것"
+    )
+    real_screenshot_asset_id: str | None = Field(
+        default=None,
+        description="제공된 실제 앱 스크린샷 목록 중 이 슬라이드에 쓸 것의 id. 적절한 게 있는 "
+        "슬라이드 최대 1~2개에만 지정하고, 나머지는 null로 두어 AI 생성 이미지를 쓰게 할 것",
     )
 
 
 class MarketingPost(BaseModel):
-    product: str = Field(description="SPING|SnapTale|spingkids 등 홍보 대상 제품")
+    product: str = Field(description="ChaMu|SNAPTAIL|터치러쉬 중 홍보 대상 제품 (실제 출시된 제품만)")
     channel: Literal["instagram", "facebook", "tiktok", "threads"]
     caption: str = Field(description="게시물 전체 캡션/문구 (캐러셀 전체에 하나만 붙음)")
     slides: list[CardSlide] = Field(

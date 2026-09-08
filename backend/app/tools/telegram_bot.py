@@ -87,12 +87,11 @@ _CARD_FORMATTERS = {
     "dev_proposal": _format_dev_proposal_card,
 }
 
-# task_plan/dev_proposal은 승인/보완/반려 3분기(보완 시 각 Worker 재작업),
-# finance_entry/marketing_post는 재작업 대상 워커가 없어(또는 단순화 목적으로) 2분기만 둔다.
+# finance_entry는 재작업 대상 워커가 없어 승인/반려 2분기만 둔다. 나머지는 보완(revision) 포함 3분기.
 _CARD_BUTTONS = {
     "task_plan": [("✅ 승인", "approved"), ("✏️ 보완", "revision"), ("❌ 반려", "rejected")],
     "finance_entry": [("✅ 승인", "approved"), ("❌ 반려", "rejected")],
-    "marketing_post": [("✅ 승인", "approved"), ("❌ 반려", "rejected")],
+    "marketing_post": [("✅ 승인", "approved"), ("✏️ 보완", "revision"), ("❌ 반려", "rejected")],
     "dev_proposal": [("✅ 승인", "approved"), ("✏️ 보완", "revision"), ("❌ 반려", "rejected")],
 }
 
@@ -115,6 +114,18 @@ async def send_approval_request(approval_id: str, target_type: str, payload: dic
         reply_markup=keyboard,
     )
     return message.message_id
+
+
+async def prompt_for_comment(message_id: int, target_type: str, payload: dict) -> None:
+    """보완 버튼을 누르면 원본 카드 내용은 유지한 채 하단 문구를 안내로 바꾸고 버튼을 지운다 —
+    CEO가 이 메시지에 "답장(reply)"으로 보완 사유를 입력하면 app/api/telegram.py가 매칭한다."""
+    format_card = _CARD_FORMATTERS[target_type]
+    await get_bot().edit_message_text(
+        chat_id=settings.telegram_ceo_chat_id,
+        message_id=message_id,
+        text=format_card(payload, "✏️ 이 메시지에 답장(reply)으로 보완 사유를 입력해주세요"),
+        reply_markup=InlineKeyboardMarkup([]),
+    )
 
 
 async def acknowledge_decision(message_id: int, target_type: str, payload: dict, decision: str) -> None:
