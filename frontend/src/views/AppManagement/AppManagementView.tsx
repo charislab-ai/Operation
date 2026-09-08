@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createProduct,
   deleteProductAsset,
@@ -29,6 +29,129 @@ function toFormState(p: ProductOut): ProductFormState {
   };
 }
 
+function Lightbox({
+  assets,
+  index,
+  onIndexChange,
+  onClose,
+  onSave,
+  onDelete,
+  busyId,
+}: {
+  assets: ProductAssetOut[];
+  index: number;
+  onIndexChange: (i: number) => void;
+  onClose: () => void;
+  onSave: (assetId: string, description: string) => Promise<void>;
+  onDelete: (assetId: string) => Promise<void>;
+  busyId: string | null;
+}) {
+  const asset = assets[index];
+  const [draft, setDraft] = useState(asset.description);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(asset.description);
+  }, [asset.id, asset.description]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft" && index > 0) onIndexChange(index - 1);
+      if (e.key === "ArrowRight" && index < assets.length - 1) onIndexChange(index + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [index, assets.length, onClose, onIndexChange]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(asset.id, draft);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4"
+      onClick={onClose}
+    >
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-slate-800/80 px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700"
+      >
+        ✕ 닫기
+      </button>
+      <div className="absolute left-4 top-4 rounded bg-slate-800/80 px-2.5 py-1 text-xs text-slate-300">
+        {asset.product} · {index + 1} / {assets.length}
+      </div>
+
+      {index > 0 && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onIndexChange(index - 1);
+          }}
+          className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-slate-800/80 px-3 py-3 text-lg text-slate-200 hover:bg-slate-700"
+        >
+          ‹
+        </button>
+      )}
+      {index < assets.length - 1 && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onIndexChange(index + 1);
+          }}
+          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-slate-800/80 px-3 py-3 text-lg text-slate-200 hover:bg-slate-700"
+        >
+          ›
+        </button>
+      )}
+
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex max-h-[90vh] w-full max-w-3xl flex-col gap-3 overflow-hidden rounded-lg bg-slate-900 sm:flex-row"
+      >
+        <div className="flex flex-1 items-center justify-center bg-slate-950 p-2 sm:max-w-[60%]">
+          <img
+            src={asset.url}
+            alt={asset.description}
+            className="max-h-[70vh] w-auto max-w-full object-contain sm:max-h-[86vh]"
+          />
+        </div>
+        <div className="flex w-full flex-col gap-2 p-4 sm:w-80">
+          <div className="text-xs text-slate-500">화면 설명</div>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={5}
+            className="w-full flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-200"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving || draft === asset.description}
+              className="flex-1 rounded-md bg-brand-purple px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+            >
+              {saving ? "저장중..." : "저장"}
+            </button>
+            <button
+              onClick={() => onDelete(asset.id)}
+              disabled={busyId === asset.id}
+              className="flex-1 rounded-md border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950 disabled:opacity-50"
+            >
+              삭제
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AppManagementView() {
   const [products, setProducts] = useState<ProductOut[]>([]);
   const [assets, setAssets] = useState<ProductAssetOut[]>([]);
@@ -51,6 +174,12 @@ export default function AppManagementView() {
   const [newName, setNewName] = useState("");
   const [newForm, setNewForm] = useState<ProductFormState>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
+
+  const [lightbox, setLightbox] = useState<{ product: string; index: number } | null>(null);
+  const lightboxAssets = useMemo(
+    () => (lightbox ? assets.filter((a) => a.product === lightbox.product) : []),
+    [assets, lightbox],
+  );
 
   const load = () => {
     setLoading(true);
@@ -134,6 +263,34 @@ export default function AppManagementView() {
     setBusyId(assetId);
     try {
       await deleteProductAsset(assetId);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const openLightbox = (product: string, assetId: string) => {
+    const list = assets.filter((a) => a.product === product);
+    const index = list.findIndex((a) => a.id === assetId);
+    if (index >= 0) setLightbox({ product, index });
+  };
+
+  const handleLightboxSave = async (assetId: string, description: string) => {
+    try {
+      await updateProductAsset(assetId, description);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleLightboxDelete = async (assetId: string) => {
+    setBusyId(assetId);
+    try {
+      await deleteProductAsset(assetId);
+      setLightbox(null);
       load();
     } catch (err) {
       setError((err as Error).message);
@@ -385,7 +542,9 @@ export default function AppManagementView() {
                 )}
 
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-400">스크린샷</span>
+                  <span className="text-xs font-medium text-slate-400">
+                    스크린샷 {productAssets.length > 0 && `(${productAssets.length}장)`}
+                  </span>
                   <button
                     onClick={() => startUpload(p.name)}
                     disabled={isUploadingThis}
@@ -409,67 +568,89 @@ export default function AppManagementView() {
                 {productAssets.length === 0 ? (
                   <div className="text-sm text-slate-500">등록된 스크린샷이 없습니다.</div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
-                    {productAssets.map((a) => (
-                      <div key={a.id} className="overflow-hidden rounded-md border border-slate-800 bg-slate-800/50">
-                        <img src={a.url} alt={a.description} className="aspect-square w-full object-cover" />
-                        <div className="p-2">
-                          {editingAssetId === a.id ? (
-                            <div className="flex flex-col gap-1.5">
-                              <input
-                                type="text"
-                                autoFocus
-                                value={editingDescription}
-                                onChange={(e) => setEditingDescription(e.target.value)}
-                                className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-xs text-slate-200"
-                              />
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => saveAssetEdit(a.id)}
-                                  disabled={busyId === a.id}
-                                  className="flex-1 rounded bg-brand-purple px-1.5 py-1 text-xs text-white disabled:opacity-50"
-                                >
-                                  저장
-                                </button>
-                                <button
-                                  onClick={() => setEditingAssetId(null)}
-                                  className="flex-1 rounded border border-slate-700 px-1.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
-                                >
-                                  취소
-                                </button>
+                  <div className="max-h-[520px] overflow-y-auto pr-1">
+                    <div className="grid grid-cols-3 gap-2">
+                      {productAssets.map((a) => (
+                        <div key={a.id} className="overflow-hidden rounded-md border border-slate-800 bg-slate-800/50">
+                          <button
+                            onClick={() => openLightbox(p.name, a.id)}
+                            className="flex aspect-[9/16] w-full items-center justify-center overflow-hidden bg-slate-950"
+                          >
+                            <img src={a.url} alt={a.description} className="h-full w-full object-contain" />
+                          </button>
+                          <div className="p-1.5">
+                            {editingAssetId === a.id ? (
+                              <div className="flex flex-col gap-1.5">
+                                <input
+                                  type="text"
+                                  autoFocus
+                                  value={editingDescription}
+                                  onChange={(e) => setEditingDescription(e.target.value)}
+                                  className="w-full rounded border border-slate-700 bg-slate-900 px-1.5 py-1 text-xs text-slate-200"
+                                />
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => saveAssetEdit(a.id)}
+                                    disabled={busyId === a.id}
+                                    className="flex-1 rounded bg-brand-purple px-1.5 py-1 text-xs text-white disabled:opacity-50"
+                                  >
+                                    저장
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingAssetId(null)}
+                                    className="flex-1 rounded border border-slate-700 px-1.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                  >
+                                    취소
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="mb-1.5 truncate text-xs text-slate-300" title={a.description}>
-                                {a.description || "(설명 없음)"}
-                              </div>
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={() => startEditAsset(a)}
-                                  className="flex-1 rounded border border-slate-700 px-1.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                            ) : (
+                              <>
+                                <div
+                                  className="mb-1.5 line-clamp-2 min-h-[2.2em] text-[11px] leading-tight text-slate-300"
+                                  title={a.description}
                                 >
-                                  수정
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteAsset(a.id)}
-                                  disabled={busyId === a.id}
-                                  className="flex-1 rounded border border-red-900 px-1.5 py-1 text-xs text-red-400 hover:bg-red-950 disabled:opacity-50"
-                                >
-                                  삭제
-                                </button>
-                              </div>
-                            </>
-                          )}
+                                  {a.description || "(설명 없음)"}
+                                </div>
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={() => startEditAsset(a)}
+                                    className="flex-1 rounded border border-slate-700 px-1 py-1 text-[11px] text-slate-300 hover:bg-slate-800"
+                                  >
+                                    수정
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteAsset(a.id)}
+                                    disabled={busyId === a.id}
+                                    className="flex-1 rounded border border-red-900 px-1 py-1 text-[11px] text-red-400 hover:bg-red-950 disabled:opacity-50"
+                                  >
+                                    삭제
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {lightbox && lightboxAssets[lightbox.index] && (
+        <Lightbox
+          assets={lightboxAssets}
+          index={lightbox.index}
+          onIndexChange={(i) => setLightbox({ product: lightbox.product, index: i })}
+          onClose={() => setLightbox(null)}
+          onSave={handleLightboxSave}
+          onDelete={handleLightboxDelete}
+          busyId={busyId}
+        />
       )}
     </div>
   );
