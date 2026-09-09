@@ -1,14 +1,33 @@
+import base64
 import mimetypes
+import re
 import uuid
 
+import httpx
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from app.config import settings
 from app.db.supabase_client import get_supabase
 
 router = APIRouter(prefix="/marketing", tags=["marketing"])
 
 PRODUCT_ASSETS_BUCKET = "product-assets"
+
+# 마케팅 벤치마킹 리포트 조회 - 클라우드 루틴이 하루 2회 GitHub에 직접 커밋하는 파일들을 읽는다.
+# 배포된 백엔드 컨테이너의 파일시스템은 마지막 배포 시점 스냅샷이라 최신 리포트가 없을 수 있어,
+# GitHub API로 실시간 조회한다(재배포 불필요).
+GITHUB_API_BASE = "https://api.github.com"
+BENCHMARKS_PATH = "docs/marketing_benchmarks"
+_BENCHMARK_FILENAME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{4}-UTC\.md$")
+
+
+def _github_headers() -> dict:
+    return {
+        "Authorization": f"Bearer {settings.github_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
 
 
 @router.get("/metrics")
@@ -110,3 +129,58 @@ def delete_product_asset(asset_id: str) -> dict:
     supabase.table("product_assets").delete().eq("id", asset_id).execute()
     supabase.storage.from_(PRODUCT_ASSETS_BUCKET).remove([storage_path])
     return {"status": "deleted"}
+
+
+class BenchmarkListItem(BaseModel):
+    filename: str
+    date: str
+    time: str
+
+
+class BenchmarkDetail(BaseModel):
+    filename: str
+    content: str
+
+
+@router.get("/benchmarks", response_model=list[BenchmarkListItem])
+async def list_benchmarks() -> list[dict]:
+    if not settings.github_token:
+        raise HTTPException(status_code=503, detail="GITHUB_TOKEN이 설정되지 않았습니다")
+    url = f"{GITHUB_API_BASE}/repos/{settings.github_repo}/contents/{BENCHMARKS_PATH}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(url, headers=_github_headers())
+    if resp.status_code == 404:
+        return []
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API 오류: {resp.status_code}")
+
+    items = []
+    for entry in resp.json():
+        name = entry.get("name", "")
+        if not _BENCHMARK_FILENAME_RE.match(name):
+            continue
+        date_part = name[:10]
+        time_part = name[11:15]
+        items.append({"filename": name, "date": date_part, "time": f"{time_part[:2]}:{time_part[2:]} UTC"})
+    items.sort(key=lambda x: x["filename"], reverse=True)
+    return items
+
+
+@router.get("/benchmarks/{filename}", response_model=BenchmarkDetail)
+async def get_benchmark(filename: str) -> dict:
+    if not _BENCHMARK_FILENAME_RE.match(filename):
+        raise HTTPException(status_code=400, detail="invalid filename")
+    if not settings.github_token:
+        raise HTTPException(status_code=503, detail="GITHUB_TOKEN이 설정되지 않았습니다")
+
+    url = f"{GITHUB_API_BASE}/repos/{settings.github_repo}/contents/{BENCHMARKS_PATH}/{filename}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(url, headers=_github_headers())
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"GitHub API 오류: {resp.status_code}")
+
+    data = resp.json()
+    content = base64.b64decode(data["content"]).decode("utf-8")
+    return {"filename": filename, "content": content}

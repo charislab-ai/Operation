@@ -45,6 +45,9 @@ class Settings(BaseSettings):
 
     google_calendar_mcp_enabled: bool = False
 
+    github_token: str = ""
+    github_repo: str = "charislab-ai/Operation"
+
     @property
     def allowed_email_list(self) -> list[str]:
         return [e.strip() for e in self.allowed_emails.split(",") if e.strip()]

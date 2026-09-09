@@ -6,6 +6,7 @@ import CalendarView from "./views/Calendar/CalendarView";
 import DashboardView from "./views/Dashboard/DashboardView";
 import WorkOrdersView from "./views/WorkOrders/WorkOrdersView";
 import AppManagementView from "./views/AppManagement/AppManagementView";
+import MarketingBenchmarksView from "./views/MarketingBenchmarks/MarketingBenchmarksView";
 import { getCurrentUser, loginWithGoogle, setSessionToken } from "./lib/api";
 
 export default function App() {
@@ -60,6 +61,7 @@ export default function App() {
           {active === "calendar" && <CalendarView />}
           {active === "workOrders" && <WorkOrdersView />}
           {active === "appManagement" && <AppManagementView />}
+          {active === "marketingBenchmarks" && <MarketingBenchmarksView />}
         </main>
       </div>
     </div>

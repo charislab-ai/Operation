@@ -1,3 +1,67 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 벤치마킹 리포트(GitHub 마크다운) 렌더링용 - 다크 테마에 맞춘 최소 스타일 */
+.markdown-body {
+  color: theme("colors.slate.200");
+  line-height: 1.7;
+}
+.markdown-body h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: theme("colors.slate.100");
+  margin-bottom: 0.75rem;
+}
+.markdown-body h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: theme("colors.slate.100");
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid theme("colors.slate.800");
+}
+.markdown-body h2:first-child {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.markdown-body p {
+  margin-bottom: 0.75rem;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 0.75rem 1.25rem;
+}
+.markdown-body ul {
+  list-style: disc;
+}
+.markdown-body ol {
+  list-style: decimal;
+}
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin-top: 0.25rem;
+}
+.markdown-body strong {
+  color: theme("colors.slate.100");
+  font-weight: 600;
+}
+.markdown-body a {
+  color: theme("colors.brand.purple", #886aff);
+  text-decoration: underline;
+}
+.markdown-body hr {
+  border-color: theme("colors.slate.800");
+  margin: 1.25rem 0;
+}
+.markdown-body code {
+  background: theme("colors.slate.800");
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}

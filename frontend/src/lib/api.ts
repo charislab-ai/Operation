@@ -496,3 +496,32 @@ export async function getAuditLog(limit = 50): Promise<AuditLogEntry[]> {
   }
   return res.json();
 }
+
+export interface BenchmarkListItem {
+  filename: string;
+  date: string;
+  time: string;
+}
+
+export interface BenchmarkDetail {
+  filename: string;
+  content: string;
+}
+
+export async function listBenchmarks(): Promise<BenchmarkListItem[]> {
+  const res = await fetch(`${API_BASE}/marketing/benchmarks`, { headers: authHeaders() });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "benchmark list fetch failed");
+  }
+  return res.json();
+}
+
+export async function getBenchmark(filename: string): Promise<BenchmarkDetail> {
+  const res = await fetch(`${API_BASE}/marketing/benchmarks/${encodeURIComponent(filename)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "benchmark detail fetch failed");
+  }
+  return res.json();
+}
