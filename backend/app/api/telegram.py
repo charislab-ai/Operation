@@ -114,6 +114,29 @@ async def _handle_revision_button(supabase, approval_id: str) -> None:
         await prompt_for_comment(int(message_id), row.data["target_type"], row.data["payload"])
 
 
+async def _handle_comment_reply_fallback(request: Request, supabase, comment: str) -> None:
+    """CEO가 텔레그램의 "답장(reply)" 제스처를 안 쓰고 그냥 새 메시지로 보완 사유를 보낸 경우를
+    위한 안전장치(실측: 답장 없이 보내면 무시되어 보완이 멈춰버리는 문제 확인됨). 지금 보완 사유를
+    기다리는 중인(awaiting_comment=True, pending) approval이 정확히 1건일 때만 그 건으로 매칭한다 -
+    여러 건이 동시에 대기 중이면(Goal형 병렬 실행) 어느 카드인지 알 수 없으므로 안전하게 무시한다."""
+    rows = (
+        supabase.table("approvals")
+        .select("id, target_type")
+        .eq("awaiting_comment", True)
+        .eq("status", "pending")
+        .execute()
+    ).data
+    if len(rows) != 1:
+        return
+
+    approval_id = rows[0]["id"]
+    target_type = rows[0]["target_type"]
+    supabase.table("approvals").update({"awaiting_comment": False}).eq("id", approval_id).execute()
+
+    if target_type in GRAPH_BASED_TARGET_TYPES:
+        await _handle_graph_resume(request, supabase, approval_id, "revision", comment)
+
+
 async def _handle_comment_reply(request: Request, supabase, reply_to_message_id: int, comment: str) -> None:
     """CEO가 보완 안내 카드에 답장으로 사유를 남기면, 그 카드에 해당하는 approval을 찾아
     실제로 그래프를 revision으로 재개한다. telegram_msg_id로 매칭하므로 병렬로 여러 카드가
@@ -175,7 +198,10 @@ async def telegram_webhook(request: Request) -> dict:
 
     message = update.get("message")
     reply_to = message.get("reply_to_message") if message else None
-    if message and reply_to and message.get("text"):
-        await _handle_comment_reply(request, supabase, reply_to["message_id"], message["text"])
+    if message and message.get("text"):
+        if reply_to:
+            await _handle_comment_reply(request, supabase, reply_to["message_id"], message["text"])
+        else:
+            await _handle_comment_reply_fallback(request, supabase, message["text"])
 
     return {"ok": True}
