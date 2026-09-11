@@ -9,6 +9,7 @@ from app.tools.ai.image.card_composer import compose_marketing_card
 from app.tools.ai.image.storage import upload_marketing_image
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
+from app.tools.github_benchmarks import fetch_latest_benchmarks
 from app.workers.rag_worker import rag_search
 
 llm = get_llm()
@@ -70,7 +71,13 @@ SYSTEM_PROMPT = """당신은 CharisLab의 마케팅(CMO) 에이전트입니다. 
 
 **실제 앱 스크린샷 활용**: 아래에 등록된 실제 앱 스크린샷 목록이 주어지면, 그중 이번에 만들 제품과
 일치하고 슬라이드 내용과 맞는 게 있을 때만 최대 1~2개 슬라이드에서 real_screenshot_asset_id로
-지정하세요(AI 생성 이미지 대신 그 실제 화면이 쓰입니다). 없거나 안 맞으면 전부 null로 두세요."""
+지정하세요(AI 생성 이미지 대신 그 실제 화면이 쓰입니다). 없거나 안 맞으면 전부 null로 두세요.
+
+**마케팅 벤치마킹 인사이트 반영(중요)**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안의 구체적인
+패턴(후킹 방식, 슬라이드 구성, 캡션 톤, 해시태그 개수, CTA 문구 스타일 등) 중 최소 1~2가지를 이번
+콘텐츠에 실제로 적용하세요. 리포트를 그냥 읽고 무시한 채 항상 비슷한 구성으로만 만들면 안 됩니다 —
+지난 번과는 확실히 다른 후킹 방식/톤/CTA를 시도해서, 벤치마킹이 실제 결과물에 반영됐다는 게 보이게
+하세요."""
 
 
 def _append_download_cta(caption: str, product: str, channel: str, products_by_name: dict[str, dict]) -> str:
@@ -123,10 +130,20 @@ async def marketing_worker_node(state: OSState, config: RunnableConfig) -> dict:
         else "(등록된 실제 스크린샷 없음)"
     )
 
+    benchmarks = await fetch_latest_benchmarks(limit=2)
+    benchmark_context = (
+        "\n\n".join(f"[최근 마케팅 벤치마킹 리포트]\n{b}" for b in benchmarks)
+        if benchmarks
+        else "(벤치마킹 리포트 없음)"
+    )
+
     post = await llm.complete_structured(
         [
             Message(role="system", content=SYSTEM_PROMPT),
-            Message(role="user", content=f"{brief}\n\n{context}\n\n{assets_context}"),
+            Message(
+                role="user",
+                content=f"{brief}\n\n{context}\n\n{assets_context}\n\n{benchmark_context}",
+            ),
         ],
         MarketingPost,
         thread_id=thread_id,
