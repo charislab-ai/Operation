@@ -1,0 +1,100 @@
+"""승인(approvals) 처리의 핵심 로직 - 텔레그램 웹훅과 웹 "업무 지시" 화면 양쪽에서
+동일하게 호출한다(호출부가 request(텔레그램)냐 REST 엔드포인트(웹)냐만 다를 뿐, 실제로
+그래프를 재개하고 새 interrupt를 카드로 만들어 보내는 로직은 완전히 같아야 함)."""
+
+from langgraph.types import Command
+
+from app.tools.telegram_bot import acknowledge_decision, send_approval_request
+
+# 그래프를 resume해야 하는 target_type들 (finance_entry는 그래프 밖에서 직접 처리하므로 제외)
+GRAPH_BASED_TARGET_TYPES = {"task_plan", "marketing_post", "dev_proposal"}
+
+
+async def resume_approval(graph, supabase, approval_id: str, decision: str, comment: str = "") -> None:
+    """승인/반려/보완 처리 - LangGraph를 resume하고, 결과로 새 interrupt가 생기면
+    (보완 후 해당 Worker가 재실행되어 다시 멈춘 경우 등) 새 승인 카드를 만들어 보낸다.
+    """
+    approval_row = (
+        supabase.table("approvals")
+        .select("thread_id, telegram_msg_id, payload, target_type, interrupt_id")
+        .eq("id", approval_id)
+        .single()
+        .execute()
+    )
+    thread_id = approval_row.data["thread_id"]
+    original_message_id = approval_row.data.get("telegram_msg_id")
+    original_payload = approval_row.data.get("payload")
+    original_target_type = approval_row.data["target_type"]
+    interrupt_id = approval_row.data.get("interrupt_id")
+
+    config = {"configurable": {"thread_id": thread_id}}
+    # Goal형 병렬 실행에서는 같은 thread_id 안에 다른 부서의 interrupt가 동시에 더 남아있을 수 있어
+    # interrupt_id로 "이 카드에 해당하는 interrupt만" 재개한다(나머지는 그대로 대기 유지).
+    resume_value = (
+        {interrupt_id: {"decision": decision, "comment": comment}}
+        if interrupt_id
+        else {"decision": decision, "comment": comment}
+    )
+    result = await graph.ainvoke(Command(resume=resume_value), config)
+
+    supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
+
+    if original_message_id and original_payload:
+        await acknowledge_decision(int(original_message_id), original_target_type, original_payload, decision)
+
+    # 보완(revision) 응답 이후 해당 Worker가 재실행되어 다시 승인 대기로 멈춘 경우, 새 승인 요청을 보낸다.
+    # 이미 카드를 보낸 interrupt(다른 부서의 아직 처리 안 된 것 포함)는 건너뛰고 새로 생긴 것만 처리한다.
+    interrupts = result.get("__interrupt__")
+    if not interrupts:
+        return
+
+    known_ids = {
+        row["interrupt_id"]
+        for row in supabase.table("approvals").select("interrupt_id").eq("thread_id", thread_id).execute().data
+        if row.get("interrupt_id")
+    }
+    for interrupt_obj in interrupts:
+        if interrupt_obj.id in known_ids:
+            continue
+        new_payload = interrupt_obj.value
+        new_target_type = new_payload.get("type", "task_plan_approval").removesuffix("_approval")
+        new_approval = (
+            supabase.table("approvals")
+            .insert(
+                {
+                    "target_type": new_target_type,
+                    "thread_id": thread_id,
+                    "status": "pending",
+                    "payload": new_payload,
+                    "interrupt_id": interrupt_obj.id,
+                }
+            )
+            .execute()
+        )
+        new_approval_id = new_approval.data[0]["id"]
+        message_id = await send_approval_request(new_approval_id, new_target_type, new_payload)
+        supabase.table("approvals").update({"telegram_msg_id": str(message_id)}).eq(
+            "id", new_approval_id
+        ).execute()
+
+
+async def decide_finance_entry(supabase, approval_id: str, decision: str) -> None:
+    """finance_entry는 LangGraph 밖에서 처리된다(그래프에 진입한 적 없는 영수증 승인) -
+    approved|rejected만 유효(보완 버튼 자체가 없음)."""
+    approval_row = (
+        supabase.table("approvals")
+        .select("target_id, telegram_msg_id, payload")
+        .eq("id", approval_id)
+        .single()
+        .execute()
+    )
+    target_id = approval_row.data["target_id"]
+    original_message_id = approval_row.data.get("telegram_msg_id")
+    original_payload = approval_row.data.get("payload")
+
+    new_status = "confirmed" if decision == "approved" else "rejected"
+    supabase.table("finance_entries").update({"status": new_status}).eq("id", target_id).execute()
+    supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
+
+    if original_message_id and original_payload:
+        await acknowledge_decision(int(original_message_id), "finance_entry", original_payload, decision)

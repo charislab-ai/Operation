@@ -4,9 +4,11 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from telegram import BotCommand
 
 from app.api import (
     agents,
+    approvals,
     audit,
     auth,
     directives,
@@ -18,17 +20,25 @@ from app.api import (
     products,
     schedules,
     tasks,
-    telegram,
+    telegram as telegram_api,
 )
 from app.auth.session import require_ceo
+from app.config import settings
 from app.db.checkpointer import close_checkpointer, init_checkpointer
 from app.graphs.build import build_graph
+from app.tools.telegram_bot import get_bot
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     checkpointer = await init_checkpointer()
     app.state.graph = build_graph(checkpointer)
+    if settings.telegram_bot_token:
+        try:
+            # 텔레그램 "/" 명령 메뉴에 노출되도록 등록 - 실패해도 앱 기동은 막지 않음
+            await get_bot().set_my_commands([BotCommand("지시", "새 업무 지시 등록")])
+        except Exception:
+            pass
     yield
     await close_checkpointer()
 
@@ -51,10 +61,11 @@ protected = [Depends(require_ceo)]
 
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(telegram.router)  # 텔레그램이 직접 호출 - CEO 세션 대신 자체 webhook secret으로 보호
+app.include_router(telegram_api.router)  # 텔레그램이 직접 호출 - CEO 세션 대신 자체 webhook secret으로 보호
 app.include_router(tasks.router, dependencies=protected)
 app.include_router(schedules.router, dependencies=protected)
 app.include_router(directives.router, dependencies=protected)
+app.include_router(approvals.router, dependencies=protected)
 app.include_router(finance.router, dependencies=protected)
 app.include_router(marketing.router, dependencies=protected)
 app.include_router(products.router, dependencies=protected)

@@ -1,102 +1,34 @@
 from fastapi import APIRouter, HTTPException, Request
-from langgraph.types import Command
+from telegram import BotCommand
 
 from app.config import settings
 from app.db.supabase_client import get_supabase
-from app.tools.telegram_bot import acknowledge_decision, get_bot, prompt_for_comment, send_approval_request
+from app.services.approvals import GRAPH_BASED_TARGET_TYPES, decide_finance_entry, resume_approval
+from app.services.directive_intake import UploadedMediaRef, create_directive_and_run
+from app.tools.telegram_bot import get_bot, prompt_for_comment, send_approval_request
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
-# 그래프를 resume해야 하는 target_type들 (finance_entry는 그래프 밖에서 직접 처리하므로 제외)
-GRAPH_BASED_TARGET_TYPES = {"task_plan", "marketing_post", "dev_proposal"}
+DIRECTIVE_COMMAND = "/지시"
+
+
+def _is_from_ceo(update: dict) -> bool:
+    """텔레그램 웹훅의 secret_token 검증은 "텔레그램 서버에서 온 요청"만 보장할 뿐, "CEO 본인
+    채팅방에서 온 메시지"인지는 보장하지 않는다 - 봇 사용자명을 아는 누구나 메시지/버튼 클릭을
+    보낼 수 있다. /지시 명령으로 새 지시를 만들 수 있게 되는 만큼 발신자 채팅방을 확인한다."""
+    message = update.get("message") or (update.get("callback_query") or {}).get("message")
+    chat_id = (message or {}).get("chat", {}).get("id")
+    return str(chat_id) == str(settings.telegram_ceo_chat_id)
 
 
 async def _handle_graph_resume(
     request: Request, supabase, approval_id: str, decision: str, comment: str = ""
 ) -> None:
-    approval_row = (
-        supabase.table("approvals")
-        .select("thread_id, telegram_msg_id, payload, target_type, interrupt_id")
-        .eq("id", approval_id)
-        .single()
-        .execute()
-    )
-    thread_id = approval_row.data["thread_id"]
-    original_message_id = approval_row.data.get("telegram_msg_id")
-    original_payload = approval_row.data.get("payload")
-    original_target_type = approval_row.data["target_type"]
-    interrupt_id = approval_row.data.get("interrupt_id")
-
-    graph = request.app.state.graph
-    config = {"configurable": {"thread_id": thread_id}}
-    # Goal형 병렬 실행에서는 같은 thread_id 안에 다른 부서의 interrupt가 동시에 더 남아있을 수 있어
-    # interrupt_id로 "이 카드에 해당하는 interrupt만" 재개한다(나머지는 그대로 대기 유지).
-    resume_value = (
-        {interrupt_id: {"decision": decision, "comment": comment}}
-        if interrupt_id
-        else {"decision": decision, "comment": comment}
-    )
-    result = await graph.ainvoke(Command(resume=resume_value), config)
-
-    supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
-
-    if original_message_id and original_payload:
-        await acknowledge_decision(int(original_message_id), original_target_type, original_payload, decision)
-
-    # 보완(revision) 응답 이후 해당 Worker가 재실행되어 다시 승인 대기로 멈춘 경우, 새 승인 요청을 보낸다.
-    # 이미 카드를 보낸 interrupt(다른 부서의 아직 처리 안 된 것 포함)는 건너뛰고 새로 생긴 것만 처리한다.
-    interrupts = result.get("__interrupt__")
-    if not interrupts:
-        return
-
-    known_ids = {
-        row["interrupt_id"]
-        for row in supabase.table("approvals").select("interrupt_id").eq("thread_id", thread_id).execute().data
-        if row.get("interrupt_id")
-    }
-    for interrupt_obj in interrupts:
-        if interrupt_obj.id in known_ids:
-            continue
-        new_payload = interrupt_obj.value
-        new_target_type = new_payload.get("type", "task_plan_approval").removesuffix("_approval")
-        new_approval = (
-            supabase.table("approvals")
-            .insert(
-                {
-                    "target_type": new_target_type,
-                    "thread_id": thread_id,
-                    "status": "pending",
-                    "payload": new_payload,
-                    "interrupt_id": interrupt_obj.id,
-                }
-            )
-            .execute()
-        )
-        new_approval_id = new_approval.data[0]["id"]
-        message_id = await send_approval_request(new_approval_id, new_target_type, new_payload)
-        supabase.table("approvals").update({"telegram_msg_id": str(message_id)}).eq(
-            "id", new_approval_id
-        ).execute()
+    await resume_approval(request.app.state.graph, supabase, approval_id, decision, comment)
 
 
 async def _handle_finance_entry(supabase, approval_id: str, decision: str) -> None:
-    approval_row = (
-        supabase.table("approvals")
-        .select("target_id, telegram_msg_id, payload")
-        .eq("id", approval_id)
-        .single()
-        .execute()
-    )
-    target_id = approval_row.data["target_id"]
-    original_message_id = approval_row.data.get("telegram_msg_id")
-    original_payload = approval_row.data.get("payload")
-
-    new_status = "confirmed" if decision == "approved" else "rejected"
-    supabase.table("finance_entries").update({"status": new_status}).eq("id", target_id).execute()
-    supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
-
-    if original_message_id and original_payload:
-        await acknowledge_decision(int(original_message_id), "finance_entry", original_payload, decision)
+    await decide_finance_entry(supabase, approval_id, decision)
 
 
 async def _handle_revision_button(supabase, approval_id: str) -> None:
@@ -137,6 +69,45 @@ async def _handle_comment_reply_fallback(request: Request, supabase, comment: st
         await _handle_graph_resume(request, supabase, approval_id, "revision", comment)
 
 
+def _extract_directive_command_text(message: dict) -> str | None:
+    """텍스트 또는 캡션이 "/지시"로 시작하면 나머지 내용을 반환한다(그룹챗 대비 "/지시@BotName"도
+    허용 - 이 봇은 1:1 CEO 채팅 전용이라 무관하지만 방어적으로 처리). 매칭 안 되면 None."""
+    for raw in (message.get("text"), message.get("caption")):
+        if not raw:
+            continue
+        token = raw.split(maxsplit=1)[0]
+        command = token.split("@")[0]
+        if command == DIRECTIVE_COMMAND:
+            return raw[len(token) :].strip()
+    return None
+
+
+async def _download_telegram_media(message: dict) -> UploadedMediaRef | None:
+    """/지시 명령에 사진/영상이 첨부돼 있으면 다운로드해서 UploadedMediaRef로 만든다."""
+    photo_list = message.get("photo")
+    video = message.get("video")
+    file_id = photo_list[-1]["file_id"] if photo_list else (video["file_id"] if video else None)
+    if not file_id:
+        return None
+    tg_file = await get_bot().get_file(file_id)
+    content = bytes(await tg_file.download_as_bytearray())
+    content_type = "video/mp4" if video else "image/jpeg"
+    return UploadedMediaRef(filename=None, content=content, content_type=content_type)
+
+
+async def _handle_directive_command(request: Request, message: dict, directive_text: str) -> None:
+    """"/지시 <내용>" 명령 - 보완 대기 중인 카드가 있어도 무시하고 항상 새 지시로 처리한다."""
+    media_ref = await _download_telegram_media(message)
+    media = [media_ref] if media_ref else []
+
+    graph = request.app.state.graph
+    result = await create_directive_and_run(graph, directive_text, media)
+    await get_bot().send_message(
+        chat_id=settings.telegram_ceo_chat_id,
+        text=f"✅ 지시가 등록되었습니다 (상태: {result['status']})",
+    )
+
+
 async def _handle_comment_reply(request: Request, supabase, reply_to_message_id: int, comment: str) -> None:
     """CEO가 보완 안내 카드에 답장으로 사유를 남기면, 그 카드에 해당하는 approval을 찾아
     실제로 그래프를 revision으로 재개한다. telegram_msg_id로 매칭하므로 병렬로 여러 카드가
@@ -174,6 +145,9 @@ async def telegram_webhook(request: Request) -> dict:
     update = await request.json()
     supabase = get_supabase()
 
+    if not _is_from_ceo(update):
+        return {"ok": True}  # CEO 본인 채팅방이 아니면 조용히 무시 (에러 응답은 정보를 흘림)
+
     callback_query = update.get("callback_query")
     if callback_query:
         try:
@@ -197,6 +171,13 @@ async def telegram_webhook(request: Request) -> dict:
         return {"ok": True}
 
     message = update.get("message")
+    if message:
+        directive_text = _extract_directive_command_text(message)
+        if directive_text is not None:
+            # "/지시" 명령은 보완 대기 상태와 무관하게 항상 새 지시 제출로 우선 처리한다.
+            await _handle_directive_command(request, message, directive_text)
+            return {"ok": True}
+
     reply_to = message.get("reply_to_message") if message else None
     if message and message.get("text"):
         if reply_to:

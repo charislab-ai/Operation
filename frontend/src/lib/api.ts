@@ -57,14 +57,29 @@ export interface DirectiveOut {
   status: "completed" | "pending_approval" | "pending" | "approved" | "rejected" | "revision";
 }
 
-export async function submitDirective(text: string): Promise<DirectiveOut> {
+export async function submitRichDirective(text: string, files: File[]): Promise<DirectiveOut> {
+  const formData = new FormData();
+  formData.append("text", text);
+  files.forEach((f) => formData.append("files", f));
   const res = await fetch(`${API_BASE}/directives`, {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify({ text }),
+    headers: authHeaders(),
+    body: formData,
   });
   if (!res.ok) {
     throw new Error((await res.json()).detail ?? "directive submission failed");
+  }
+  return res.json();
+}
+
+export async function updateDirective(threadId: string, ceoDirective: string): Promise<DirectiveOut> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ ceo_directive: ceoDirective }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive update failed");
   }
   return res.json();
 }
@@ -137,6 +152,74 @@ export interface DirectiveDetail {
   approvals: ApprovalRow[];
   agent_runs: AgentRunRow[];
   ai_usage: AiUsageSummary;
+  media: DirectiveMediaOut[];
+}
+
+export interface DirectiveMediaOut {
+  id: string;
+  media_type: "image" | "video";
+  url: string;
+  caption: string | null;
+}
+
+export async function uploadDirectiveMedia(
+  threadId: string,
+  file: File,
+  caption?: string,
+): Promise<DirectiveMediaOut> {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (caption) formData.append("caption", caption);
+  const res = await fetch(`${API_BASE}/directives/${threadId}/media`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive media upload failed");
+  }
+  return res.json();
+}
+
+export async function updateDirectiveMedia(
+  threadId: string,
+  mediaId: string,
+  caption: string,
+): Promise<DirectiveMediaOut> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/media/${mediaId}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ caption }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive media update failed");
+  }
+  return res.json();
+}
+
+export async function deleteDirectiveMedia(threadId: string, mediaId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/media/${mediaId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "directive media delete failed");
+  }
+}
+
+export async function decideApproval(
+  approvalId: string,
+  decision: "approved" | "rejected" | "revision",
+  comment?: string,
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/approvals/${approvalId}/decide`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ decision, comment: comment ?? null }),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "approval decision failed");
+  }
 }
 
 export async function listDirectives(): Promise<DirectiveListItem[]> {

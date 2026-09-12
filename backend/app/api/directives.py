@@ -1,21 +1,35 @@
-import uuid
-
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from app.db.supabase_client import get_supabase
-from app.tools.telegram_bot import send_approval_request
+from app.services.directive_intake import (
+    DIRECTIVE_MEDIA_BUCKET,
+    UploadedMediaRef,
+    create_directive_and_run,
+    upload_one_media,
+)
 
 router = APIRouter(prefix="/directives", tags=["directives"])
-
-
-class DirectiveCreate(BaseModel):
-    text: str
 
 
 class DirectiveOut(BaseModel):
     thread_id: str
     status: str
+
+
+class DirectiveUpdate(BaseModel):
+    ceo_directive: str
+
+
+class DirectiveMediaOut(BaseModel):
+    id: str
+    media_type: str
+    url: str
+    caption: str | None
+
+
+class DirectiveMediaUpdate(BaseModel):
+    caption: str
 
 
 class DirectiveListItem(BaseModel):
@@ -55,56 +69,23 @@ class DirectiveDetailOut(BaseModel):
     approvals: list[dict]
     agent_runs: list[dict]
     ai_usage: AiUsageSummary
+    media: list[DirectiveMediaOut]
 
 
 @router.post("", response_model=DirectiveOut)
-async def create_directive(payload: DirectiveCreate, request: Request) -> dict:
+async def create_directive(
+    request: Request,
+    text: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+) -> dict:
+    """CEO 지시 제출 - 텍스트뿐 아니라 이미지/영상도 함께 첨부할 수 있다(멀티파트).
+    실제 생성 로직은 텔레그램 "/지시" 명령과 공유한다(app/services/directive_intake.py)."""
     graph = request.app.state.graph
-    thread_id = str(uuid.uuid4())
-    config = {"configurable": {"thread_id": thread_id}}
-
-    # 업무 지시 카드 목록 화면이 항상 이 지시를 보여줄 수 있도록, 그래프 실행 전에 먼저 남긴다
-    # (실행 도중 문제가 생겨도 "제출된 지시" 자체는 남아야 함).
-    get_supabase().table("directives").insert(
-        {"thread_id": thread_id, "ceo_directive": payload.text}
-    ).execute()
-
-    result = await graph.ainvoke({"ceo_directive": payload.text, "messages": []}, config)
-
-    interrupts = result.get("__interrupt__")
-    if not interrupts:
-        return {"thread_id": thread_id, "status": "completed"}
-
-    # Goal형 병렬 실행에서는 여러 부서가 동시에 승인을 기다릴 수 있어 interrupt가 여러 개 올 수 있다
-    # (예: marketing_post_approval + dev_proposal_approval 동시). 각각 별도 카드로 보낸다.
-    for interrupt_obj in interrupts:
-        interrupt_payload = interrupt_obj.value
-        # 각 노드가 만드는 payload의 "type"으로 어떤 종류의 승인인지 판별한다
-        # (task_plan_approval → task_plan, marketing_post_approval → marketing_post).
-        target_type = interrupt_payload.get("type", "task_plan_approval").removesuffix("_approval")
-
-        approval = (
-            get_supabase()
-            .table("approvals")
-            .insert(
-                {
-                    "target_type": target_type,
-                    "thread_id": thread_id,
-                    "status": "pending",
-                    "payload": interrupt_payload,
-                    "interrupt_id": interrupt_obj.id,
-                }
-            )
-            .execute()
-        )
-        approval_id = approval.data[0]["id"]
-
-        message_id = await send_approval_request(approval_id, target_type, interrupt_payload)
-        get_supabase().table("approvals").update({"telegram_msg_id": str(message_id)}).eq(
-            "id", approval_id
-        ).execute()
-
-    return {"thread_id": thread_id, "status": "pending_approval"}
+    media = [
+        UploadedMediaRef(filename=f.filename, content=await f.read(), content_type=f.content_type)
+        for f in files
+    ]
+    return await create_directive_and_run(graph, text, media)
 
 
 @router.get("/{thread_id}", response_model=DirectiveOut)
@@ -121,6 +102,68 @@ def get_directive(thread_id: str) -> dict:
     if not result.data:
         raise HTTPException(status_code=404, detail="directive not found")
     return {"thread_id": thread_id, "status": result.data[0]["status"]}
+
+
+@router.patch("/{thread_id}", response_model=DirectiveOut)
+def update_directive(thread_id: str, payload: DirectiveUpdate) -> dict:
+    """지시 내용을 수정한다 - 기록만 바꿀 뿐 그래프/워커에는 아무 영향이 없다(의도적).
+    실제로 다시 작업시키려면 승인/반려/보완(POST /approvals/{id}/decide) 경로를 쓴다."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("directives")
+        .update({"ceo_directive": payload.ceo_directive})
+        .eq("thread_id", thread_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="directive not found")
+    latest_status = (
+        supabase.table("approvals")
+        .select("status")
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return {"thread_id": thread_id, "status": latest_status[0]["status"] if latest_status else "completed"}
+
+
+@router.post("/{thread_id}/media", response_model=DirectiveMediaOut)
+async def add_directive_media(
+    thread_id: str, file: UploadFile = File(...), caption: str | None = Form(None)
+) -> dict:
+    supabase = get_supabase()
+    content = await file.read()
+    media_ref = UploadedMediaRef(
+        filename=file.filename, content=content, content_type=file.content_type, caption=caption
+    )
+    return upload_one_media(supabase, thread_id, media_ref)
+
+
+@router.patch("/{thread_id}/media/{media_id}", response_model=DirectiveMediaOut)
+def update_directive_media(thread_id: str, media_id: str, payload: DirectiveMediaUpdate) -> dict:
+    supabase = get_supabase()
+    result = (
+        supabase.table("directive_media").update({"caption": payload.caption}).eq("id", media_id).execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="media not found")
+    row = result.data[0]
+    url = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET).get_public_url(row["storage_path"])
+    return {"id": row["id"], "media_type": row["media_type"], "url": url, "caption": row["caption"]}
+
+
+@router.delete("/{thread_id}/media/{media_id}")
+def delete_directive_media(thread_id: str, media_id: str) -> dict:
+    supabase = get_supabase()
+    row = supabase.table("directive_media").select("storage_path").eq("id", media_id).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="media not found")
+    storage_path = row.data[0]["storage_path"]
+    supabase.table("directive_media").delete().eq("id", media_id).execute()
+    supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET).remove([storage_path])
+    return {"status": "deleted"}
 
 
 @router.get("", response_model=list[DirectiveListItem])
@@ -232,6 +275,25 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         "by_agent": list(by_agent.values()),
     }
 
+    media_rows = (
+        supabase.table("directive_media")
+        .select("id, storage_path, media_type, caption")
+        .eq("thread_id", thread_id)
+        .order("created_at")
+        .execute()
+        .data
+    )
+    media_bucket = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET)
+    media = [
+        {
+            "id": m["id"],
+            "media_type": m["media_type"],
+            "caption": m["caption"],
+            "url": media_bucket.get_public_url(m["storage_path"]),
+        }
+        for m in media_rows
+    ]
+
     return {
         "thread_id": thread_id,
         "ceo_directive": directive["ceo_directive"],
@@ -249,4 +311,5 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         "approvals": approvals,
         "agent_runs": agent_runs,
         "ai_usage": ai_usage,
+        "media": media,
     }

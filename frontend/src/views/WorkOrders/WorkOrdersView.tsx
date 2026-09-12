@@ -1,7 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  decideApproval,
+  deleteDirectiveMedia,
   getDirectiveDetail,
   listDirectives,
+  updateDirective,
+  updateDirectiveMedia,
+  uploadDirectiveMedia,
   type AgentRunRow,
   type ApprovalRow,
   type DirectiveDetail,
@@ -66,6 +71,19 @@ export default function WorkOrdersView() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [revisionDraftId, setRevisionDraftId] = useState<string | null>(null);
+  const [revisionComment, setRevisionComment] = useState("");
+
+  const [editingDirective, setEditingDirective] = useState(false);
+  const [directiveDraft, setDirectiveDraft] = useState("");
+  const [savingDirective, setSavingDirective] = useState(false);
+
+  const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [mediaCaptionDraftId, setMediaCaptionDraftId] = useState<string | null>(null);
+  const [mediaCaptionDraft, setMediaCaptionDraft] = useState("");
+  const mediaFileInputRef = useRef<HTMLInputElement>(null);
+
   const load = () => {
     setLoading(true);
     listDirectives()
@@ -89,6 +107,77 @@ export default function WorkOrdersView() {
       .then(setDetail)
       .catch((e) => setDetailError((e as Error).message))
       .finally(() => setDetailLoading(false));
+  };
+
+  const handleDecide = async (approvalId: string, decision: "approved" | "rejected" | "revision", comment?: string) => {
+    if (
+      (decision === "approved" || decision === "rejected") &&
+      !window.confirm(`정말 ${decision === "approved" ? "승인" : "반려"}하시겠습니까?`)
+    ) {
+      return;
+    }
+    setDecidingId(approvalId);
+    setDetailError(null);
+    try {
+      await decideApproval(approvalId, decision, comment);
+      setRevisionDraftId(null);
+      setRevisionComment("");
+      if (selected) loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
+  const handleSaveDirective = async () => {
+    if (!selected) return;
+    setSavingDirective(true);
+    try {
+      await updateDirective(selected, directiveDraft);
+      setEditingDirective(false);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    } finally {
+      setSavingDirective(false);
+    }
+  };
+
+  const handleAddMedia = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selected) return;
+    setUploadingMedia(true);
+    try {
+      await uploadDirectiveMedia(selected, file);
+      loadDetail(selected);
+    } catch (err) {
+      setDetailError((err as Error).message);
+    } finally {
+      setUploadingMedia(false);
+      if (mediaFileInputRef.current) mediaFileInputRef.current.value = "";
+    }
+  };
+
+  const handleSaveCaption = async (mediaId: string) => {
+    if (!selected) return;
+    try {
+      await updateDirectiveMedia(selected, mediaId, mediaCaptionDraft);
+      setMediaCaptionDraftId(null);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    }
+  };
+
+  const handleDeleteMedia = async (mediaId: string) => {
+    if (!selected) return;
+    try {
+      await deleteDirectiveMedia(selected, mediaId);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    }
   };
 
   if (selected) {
@@ -141,8 +230,109 @@ export default function WorkOrdersView() {
                   ))
                 )}
               </div>
-              <div className="whitespace-pre-wrap text-sm text-slate-100">{detail.ceo_directive}</div>
+              {editingDirective ? (
+                <div className="flex flex-col gap-2">
+                  <textarea
+                    value={directiveDraft}
+                    onChange={(e) => setDirectiveDraft(e.target.value)}
+                    rows={4}
+                    className="rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-200"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveDirective}
+                      disabled={savingDirective}
+                      className="rounded-md bg-brand-purple px-3 py-1.5 text-sm text-white disabled:opacity-50"
+                    >
+                      저장
+                    </button>
+                    <button
+                      onClick={() => setEditingDirective(false)}
+                      className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+                    >
+                      취소
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="whitespace-pre-wrap text-sm text-slate-100">{detail.ceo_directive}</div>
+                  <button
+                    onClick={() => {
+                      setDirectiveDraft(detail.ceo_directive);
+                      setEditingDirective(true);
+                    }}
+                    className="mt-2 text-xs text-slate-500 underline hover:text-slate-300"
+                  >
+                    지시사항 수정 (기록만 수정됨 — 실제 반영은 아래 결정사항에서 승인/보완으로)
+                  </button>
+                </>
+              )}
               <div className="mt-2 text-xs text-slate-500">{formatDate(detail.created_at)} 제출</div>
+
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-400">
+                    첨부 파일 {detail.media.length > 0 && `(${detail.media.length}개)`}
+                  </span>
+                  <button
+                    onClick={() => mediaFileInputRef.current?.click()}
+                    disabled={uploadingMedia}
+                    className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {uploadingMedia ? "업로드중..." : "+ 첨부 추가"}
+                  </button>
+                  <input
+                    ref={mediaFileInputRef}
+                    type="file"
+                    accept="image/*,video/*"
+                    hidden
+                    onChange={handleAddMedia}
+                  />
+                </div>
+                {detail.media.length === 0 ? (
+                  <div className="text-xs text-slate-500">첨부된 파일이 없습니다.</div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-6">
+                    {detail.media.map((m) => (
+                      <div key={m.id} className="rounded border border-slate-800 bg-slate-800/50 p-1.5 text-xs">
+                        {m.media_type === "image" ? (
+                          <img src={m.url} className="mb-1 aspect-square w-full rounded object-cover" />
+                        ) : (
+                          <video src={m.url} controls className="mb-1 aspect-square w-full rounded object-cover" />
+                        )}
+                        {mediaCaptionDraftId === m.id ? (
+                          <input
+                            value={mediaCaptionDraft}
+                            onChange={(e) => setMediaCaptionDraft(e.target.value)}
+                            onBlur={() => handleSaveCaption(m.id)}
+                            onKeyDown={(e) => e.key === "Enter" && handleSaveCaption(m.id)}
+                            autoFocus
+                            className="w-full rounded border border-slate-700 bg-slate-900 px-1 py-0.5 text-slate-200"
+                          />
+                        ) : (
+                          <div
+                            onClick={() => {
+                              setMediaCaptionDraftId(m.id);
+                              setMediaCaptionDraft(m.caption ?? "");
+                            }}
+                            className="mb-1 truncate text-slate-400 hover:text-slate-200"
+                            title={m.caption ?? "캡션 없음"}
+                          >
+                            {m.caption ?? "캡션 없음"}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => handleDeleteMedia(m.id)}
+                          className="text-red-400 hover:underline"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -304,7 +494,8 @@ export default function WorkOrdersView() {
                       <th className="pb-2 pr-4 font-medium">부서</th>
                       <th className="pb-2 pr-4 font-medium">상태</th>
                       <th className="pb-2 pr-4 font-medium">시각</th>
-                      <th className="pb-2 font-medium">보완 사유</th>
+                      <th className="pb-2 pr-4 font-medium">보완 사유</th>
+                      <th className="pb-2 font-medium">동작</th>
                     </tr>
                   </thead>
                   <tbody className="text-slate-300">
@@ -313,7 +504,64 @@ export default function WorkOrdersView() {
                         <td className="py-2 pr-4">{DEPT_LABEL[a.target_type] ?? a.target_type}</td>
                         <td className="py-2 pr-4"><StatusPill status={a.status} /></td>
                         <td className="py-2 pr-4 whitespace-nowrap text-slate-500">{formatDate(a.created_at)}</td>
-                        <td className="py-2">{detail.revision_notes[a.target_type] ?? "-"}</td>
+                        <td className="py-2 pr-4">{detail.revision_notes[a.target_type] ?? "-"}</td>
+                        <td className="py-2">
+                          {a.status !== "pending" ? (
+                            "-"
+                          ) : revisionDraftId === a.id ? (
+                            <div className="flex flex-col gap-1">
+                              <textarea
+                                value={revisionComment}
+                                onChange={(e) => setRevisionComment(e.target.value)}
+                                rows={2}
+                                placeholder="보완 사유"
+                                className="w-40 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => handleDecide(a.id, "revision", revisionComment)}
+                                  disabled={decidingId === a.id || !revisionComment.trim()}
+                                  className="rounded-md bg-brand-purple px-2 py-1 text-xs text-white disabled:opacity-50"
+                                >
+                                  제출
+                                </button>
+                                <button
+                                  onClick={() => setRevisionDraftId(null)}
+                                  className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                                >
+                                  취소
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => handleDecide(a.id, "approved")}
+                                disabled={decidingId === a.id}
+                                className="rounded-md bg-brand-purple px-2 py-1 text-xs text-white disabled:opacity-50"
+                              >
+                                승인
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setRevisionDraftId(a.id);
+                                  setRevisionComment("");
+                                }}
+                                disabled={decidingId === a.id}
+                                className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                              >
+                                보완
+                              </button>
+                              <button
+                                onClick={() => handleDecide(a.id, "rejected")}
+                                disabled={decidingId === a.id}
+                                className="rounded-md border border-red-900 px-2 py-1 text-xs text-red-400 hover:bg-red-950"
+                              >
+                                반려
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
