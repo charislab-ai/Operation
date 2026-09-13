@@ -6,6 +6,7 @@ from app.graphs.schemas import VisualPlan
 from app.graphs.state import OSState
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
+from app.tools.github_benchmarks import fetch_latest_benchmarks
 
 llm = get_llm()
 
@@ -30,7 +31,11 @@ SYSTEM_PROMPT = """당신은 CharisLab의 비주얼 디자이너입니다. 마�
 
 **실제 앱 스크린샷 활용**: 아래에 등록된 실제 앱 스크린샷 목록이 주어지면, 그중 이번에 만들 제품과
 일치하고 슬라이드 주제와 맞는 게 있을 때만 최대 1~2개 슬라이드에서 real_screenshot_asset_id로
-지정하세요(AI 생성 이미지 대신 그 실제 화면이 쓰입니다). 없거나 안 맞으면 전부 null로 두세요."""
+지정하세요(AI 생성 이미지 대신 그 실제 화면이 쓰입니다). 없거나 안 맞으면 전부 null로 두세요.
+
+**마케팅 벤치마킹 인사이트 반영(중요)**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안의 구성/구도
+관련 패턴(예: 캐러셀 슬라이드별 시각적 역할, 인물/제품 배치 방식 등) 중 참고할 게 있으면 이번
+이미지 프롬프트에 실제로 반영하세요. 매번 비슷한 장면·구도로만 만들면 안 됩니다."""
 
 
 async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
@@ -53,11 +58,18 @@ async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
         else "(등록된 실제 스크린샷 없음)"
     )
 
+    benchmarks = await fetch_latest_benchmarks(limit=2)
+    benchmark_context = (
+        "\n\n".join(f"[최근 마케팅 벤치마킹 리포트]\n{b}" for b in benchmarks)
+        if benchmarks
+        else "(벤치마킹 리포트 없음)"
+    )
+
     user_content = (
         f"제품: {brief['product']}\n"
         f"슬라이드 주제({len(brief['slide_topics'])}개, 이 순서 그대로 작성):\n"
         + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(brief["slide_topics"]))
-        + f"\n\n{assets_context}"
+        + f"\n\n{assets_context}\n\n{benchmark_context}"
     )
 
     visual = await llm.complete_structured(
