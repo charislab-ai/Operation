@@ -458,6 +458,11 @@ export default function WorkOrdersView() {
                           ))}
                         </div>
                       )}
+                      {outputs.marketing_post.director_notes ? (
+                        <div className="mt-2 text-xs text-slate-500">
+                          🎬 디렉터 소견: {String(outputs.marketing_post.director_notes)}
+                        </div>
+                      ) : null}
                     </div>
                   )}
 

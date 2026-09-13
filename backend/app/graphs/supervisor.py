@@ -51,7 +51,7 @@ def route_after_supervisor(state: OSState) -> list[str]:
     node_by_route = {
         "bizdev": "bizdev_worker",
         "pm": "pm_worker",
-        "marketing": "marketing_worker",
+        "marketing": "marketing_director_brief",
         "dev": "dev_worker",
     }
     nodes = [node_by_route[r] for r in routes if r in node_by_route]

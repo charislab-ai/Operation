@@ -1,0 +1,173 @@
+import httpx
+from langchain_core.runnables import RunnableConfig
+
+from app.db.agent_runs import finish_run, start_run
+from app.db.supabase_client import get_supabase
+from app.graphs.schemas import CreativeBrief, DirectorReview
+from app.graphs.state import OSState
+from app.graphs.workers._marketing_shared import append_download_cta, canonical_product, fetch_products, hex_to_rgb
+from app.tools.ai.image.card_composer import compose_marketing_card
+from app.tools.ai.image.storage import upload_marketing_image
+from app.tools.ai.llm import get_llm
+from app.tools.ai.llm.base import Message
+from app.tools.github_benchmarks import fetch_latest_benchmarks
+from app.workers.rag_worker import rag_search
+
+llm = get_llm()
+
+BRIEF_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. CEO의 지시와 (있다면) 제품 특징 문서를
+참고해서 홍보할 제품(product), 게시할 채널(channel: instagram|facebook|tiktok|threads), 그리고
+슬라이드별 주제 목록(slide_topics, 3~5개)을 정하세요. 채널이 명시되지 않으면 지시 맥락상 가장
+적합한 채널 하나를 고르세요.
+
+당신이 정한 slide_topics만 보고 콘텐츠 전략가(카피 담당)와 비주얼 디자이너(이미지 담당)가 서로의
+결과물을 못 본 채 동시에 작업합니다 — 그러니 각 슬라이드가 정확히 뭘 다루는지 구체적으로 적어야
+두 사람의 결과물이 나중에 자연스럽게 맞아떨어집니다(예: "1번: '매일 반복되는 벨소리, 지겹지
+않나요?' 식의 질문형 후킹" 처럼 톤/내용을 함께 지정).
+
+슬라이드 구성: 1번은 후킹, 중간은 기능/베네핏을 하나씩, 마지막은 CTA.
+
+**마케팅 벤치마킹 인사이트 반영(중요)**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안의 구체적인
+패턴(후킹 방식, 슬라이드 구성, 캡션 톤, CTA 문구 스타일 등) 중 최소 1~2가지를 이번 슬라이드 주제
+구성에 실제로 적용하세요. 매번 비슷한 구성으로만 만들면 안 됩니다 — 지난 번과는 확실히 다른 후킹
+방식/구성을 시도하세요."""
+
+DIRECTOR_REVIEW_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. 콘텐츠 전략가가 쓴 캡션과
+비주얼 디자이너가 준비한 슬라이드 구성이 서로 잘 어울리는지 검토하세요. 캡션이 슬라이드 내용과
+맞지 않거나 어색하면 다듬어서 최종본(final_caption)으로 확정하고, 검토 소견(director_notes)을
+1~2문장으로 남기세요(CEO가 승인 카드에서 보게 됩니다)."""
+
+
+def _gather_context(state: OSState) -> tuple[str, dict[str, dict]]:
+    """브리핑 작성에 필요한 지시문 + 참고 컨텍스트를 모은다."""
+    brief = state.get("worker_briefs", {}).get("marketing") or state["ceo_directive"]
+    revision_note = state.get("revision_notes", {}).get("marketing")
+    if revision_note:
+        brief = f"{brief}\n\n[CEO 보완 요청 사유] {revision_note}"
+    return brief, fetch_products()
+
+
+async def marketing_director_brief_node(state: OSState, config: RunnableConfig) -> dict:
+    """마케팅 디렉터 1단계: 착수 전 크리에이티브 브리핑 작성. 이 결과만 보고 콘텐츠 전략가와
+    비주얼 디자이너가 병렬로(각자 다른 state 키에) 작업한다."""
+    thread_id = config["configurable"]["thread_id"]
+    run_id = start_run("MarketingDirector", {"ceo_directive": state["ceo_directive"]}, thread_id=thread_id)
+
+    brief, products_by_name = _gather_context(state)
+
+    related_docs = await rag_search(brief, limit=3)
+    doc_context = "\n\n".join(f"[제품 특징 문서] {d['content']}" for d in related_docs)
+    product_descriptions = "\n".join(
+        f"[{name} 앱 설명] {row['description']}" for name, row in products_by_name.items() if row.get("description")
+    )
+    context = "\n\n".join(filter(None, [doc_context, product_descriptions])) or "(참고할 제품 문서 없음)"
+
+    benchmarks = await fetch_latest_benchmarks(limit=2)
+    benchmark_context = (
+        "\n\n".join(f"[최근 마케팅 벤치마킹 리포트]\n{b}" for b in benchmarks)
+        if benchmarks
+        else "(벤치마킹 리포트 없음)"
+    )
+
+    creative_brief = await llm.complete_structured(
+        [
+            Message(role="system", content=BRIEF_PROMPT),
+            Message(role="user", content=f"{brief}\n\n{context}\n\n{benchmark_context}"),
+        ],
+        CreativeBrief,
+        thread_id=thread_id,
+        agent_name="MarketingDirector",
+    )
+
+    finish_run(run_id, creative_brief.model_dump())
+    return {
+        "creative_brief": creative_brief.model_dump(),
+        "messages": [
+            {
+                "role": "assistant",
+                "content": f"[MarketingDirector] 브리핑 작성 완료 - {creative_brief.product}/{creative_brief.channel}, 슬라이드 {len(creative_brief.slide_topics)}개",
+            }
+        ],
+    }
+
+
+async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> dict:
+    """마케팅 디렉터 2단계: ContentStrategist·VisualDesigner가 둘 다 끝난 뒤(LangGraph join)
+    슬라이드를 합치고, 실제 이미지를 합성하고, 최종 검토해서 marketing_post를 완성한다."""
+    thread_id = config["configurable"]["thread_id"]
+    brief = state["creative_brief"]
+    content = state["content_strategy"]
+    visual = state["visual_plan"]
+
+    run_id = start_run(
+        "MarketingDirector",
+        {"product": brief["product"], "channel": brief["channel"]},
+        thread_id=thread_id,
+    )
+
+    merged_slides = [{**c, **v} for c, v in zip(content["slides"], visual["slides"])]
+
+    products_by_name = fetch_products()
+    assets = get_supabase().table("product_assets").select("id, storage_path").execute().data
+    assets_by_id = {a["id"]: a for a in assets}
+
+    brand_color = hex_to_rgb((products_by_name.get(canonical_product(brief["product"])) or {}).get("brand_color"))
+    total = len(merged_slides)
+    image_urls = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for i, slide in enumerate(merged_slides):
+            kwargs = {"page_label": f"{i + 1}/{total}"}
+            if brand_color:
+                kwargs["brand_color"] = brand_color
+
+            asset = assets_by_id.get(slide.get("real_screenshot_asset_id") or "")
+            if asset:
+                public_url = get_supabase().storage.from_("product-assets").get_public_url(asset["storage_path"])
+                resp = await client.get(public_url)
+                if resp.status_code == 200:
+                    kwargs["illustration_bytes"] = resp.content
+
+            card_bytes = await compose_marketing_card(
+                slide["image_prompt"],
+                slide["headline"],
+                slide["subtext"],
+                brief["product"],
+                thread_id=thread_id,
+                agent_name="VisualDesigner",
+                **kwargs,
+            )
+            image_urls.append(upload_marketing_image(card_bytes))
+
+    review = await llm.complete_structured(
+        [
+            Message(role="system", content=DIRECTOR_REVIEW_PROMPT),
+            Message(
+                role="user",
+                content=f"캡션: {content['caption']}\n슬라이드: {merged_slides}",
+            ),
+        ],
+        DirectorReview,
+        thread_id=thread_id,
+        agent_name="MarketingDirector",
+    )
+
+    caption = append_download_cta(review.final_caption, brief["product"], brief["channel"], products_by_name)
+
+    marketing_post = {
+        "product": brief["product"],
+        "channel": brief["channel"],
+        "caption": caption,
+        "slides": merged_slides,
+        "image_urls": image_urls,
+        "director_notes": review.director_notes,
+    }
+    finish_run(run_id, marketing_post)
+    return {
+        "marketing_post": marketing_post,
+        "messages": [
+            {
+                "role": "assistant",
+                "content": f"[MarketingDirector] 최종 검토 완료 - {brief['product']}/{brief['channel']} ({total}장)",
+            }
+        ],
+    }

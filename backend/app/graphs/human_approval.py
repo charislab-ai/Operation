@@ -26,6 +26,7 @@ def _marketing_payload(state: OSState) -> dict:
         "caption": post.get("caption"),
         "slides": post.get("slides", []),
         "image_urls": post.get("image_urls", []),
+        "director_notes": post.get("director_notes"),
     }
 
 
@@ -64,13 +65,23 @@ def make_approval_node(kind: ApprovalKind):
     return node
 
 
+#  보완(revision) 선택 시 재진입할 노드. 기본은 "{kind}_worker"지만 marketing은 팀 구조라
+# 브리핑 노드부터 다시 시작해야 한다(디렉터가 보완 사유를 반영한 새 브리핑을 써야 전략가/디자이너가
+# 다시 맞물려 작업할 수 있음).
+_REVISION_RESTART_NODE: dict[ApprovalKind, str] = {
+    "pm": "pm_worker",
+    "marketing": "marketing_director_brief",
+    "dev": "dev_worker",
+}
+
+
 def make_route_after_approval(kind: ApprovalKind):
     def route(state: OSState) -> str:
         decision = state.get("decisions", {}).get(kind)
         if decision == "approved" and kind == "marketing":
             return "publish_worker"
         if decision == "revision":
-            return f"{kind}_worker"
+            return _REVISION_RESTART_NODE[kind]
         return END
 
     return route

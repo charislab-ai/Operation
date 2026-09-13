@@ -13,7 +13,12 @@ class OSState(TypedDict, total=False):
     biz_plan: dict
     biz_plan_brief: str
     wbs_plan: dict
-    marketing_post: dict  # MarketingWorker가 생성(product/channel/caption/image_url), Phase 3
+    # 마케팅 팀 - MarketingDirector가 브리핑 작성 → ContentStrategist/VisualDesigner가 병렬로 각자
+    # 다른 키에만 쓰기 때문에(reducer 불필요) MarketingSynthesis가 둘 다 끝난 뒤 합쳐서 marketing_post를 만든다.
+    creative_brief: dict  # MarketingDirector 작성 (product/channel/slide_topics)
+    content_strategy: dict  # ContentStrategist 산출물 (caption/slides[headline,subtext])
+    visual_plan: dict  # VisualDesigner 산출물 (slides[image_prompt, real_screenshot_asset_id])
+    marketing_post: dict  # MarketingSynthesis가 최종 조립(product/channel/caption/slides/image_urls/director_notes)
     dev_proposal: dict  # DevWorker가 생성(title/summary/files_affected/code_sketch/pr_description), Phase 4
     # 부서별 승인 결과("approved"|"rejected"|"revision") - 병렬 승인이 서로 안 섞이게 부서명으로 구분.
     # interrupt 재개 시 이미 완료된 다른 부서의 승인 노드도 캐시된 값으로 같은 틱에 다시 완료 처리되면서

@@ -56,6 +56,9 @@ def _format_marketing_post_card(payload: dict, footer: str) -> str:
     lines.append("")
     for i, url in enumerate(image_urls):
         lines.append(f"이미지 {i + 1}: {url}")
+    if payload.get("director_notes"):
+        lines.append("")
+        lines.append(f"🎬 디렉터 소견: {payload['director_notes']}")
     lines.append("")
     lines.append(footer)
     return "\n".join(lines)
