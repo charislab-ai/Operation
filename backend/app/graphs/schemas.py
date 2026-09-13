@@ -98,6 +98,13 @@ class VisualSlide(BaseModel):
         description="제공된 실제 앱 스크린샷 목록 중 이 슬라이드에 쓸 것의 id. 적절한 게 있는 "
         "슬라이드 최대 1~2개에만 지정하고, 나머지는 null로 두어 AI 생성 이미지를 쓰게 할 것",
     )
+    layout_style: Literal["banded", "overlay", "bold_type", "split"] = Field(
+        description="이 슬라이드에 쓸 카드 레이아웃 스타일. banded=사진 위+하단 브랜드컬러 밴드, "
+        "overlay=풀블리드 사진 위에 하단 그라데이션과 텍스트 오버레이, bold_type=작은 사진 썸네일+"
+        "초대형 타이포그래피(후킹 슬라이드에 효과적), split=좌측 브랜드컬러 블록+텍스트/우측 사진. "
+        "최근 벤치마킹 리포트에서 확인한 인기 있는 카드뉴스 구성 방식을 참고해서 고르고, 한 게시물 "
+        "안에서도 슬라이드마다 다양하게 섞어 쓸 것 - 매번 같은 스타일만 고르지 말 것"
+    )
 
 
 class VisualPlan(BaseModel):

@@ -116,7 +116,10 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
     image_urls = []
     async with httpx.AsyncClient(timeout=30) as client:
         for i, slide in enumerate(merged_slides):
-            kwargs = {"page_label": f"{i + 1}/{total}"}
+            kwargs = {
+                "page_label": f"{i + 1}/{total}",
+                "layout_style": slide.get("layout_style", "banded"),
+            }
             if brand_color:
                 kwargs["brand_color"] = brand_color
 

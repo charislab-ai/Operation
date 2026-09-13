@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -59,7 +60,7 @@ def _crop_to_ratio(illustration_bytes: bytes, target_w: int, target_h: int) -> I
     return photo.resize((target_w, target_h), Image.LANCZOS)
 
 
-def render_card_news(
+def render_banded(
     illustration_bytes: bytes,
     headline: str,
     subtext: str,
@@ -67,7 +68,7 @@ def render_card_news(
     page_label: str | None = None,
     brand_color: tuple[int, int, int] = DEFAULT_BRAND,
 ) -> bytes:
-    """실제 한국 카드뉴스 스타일에 가깝게: 상단 풀블리드 사진(사각, 그라데이션/둥근모서리 없음) +
+    """레이아웃 스타일 1/4 "banded" - 상단 풀블리드 사진(사각, 그라데이션/둥근모서리 없음) +
     하단 단색 브랜드 컬러 밴드에 좌측정렬 헤드라인. AI 특유의 보라-파랑 그라데이션 배경, 중앙정렬
     텍스트, 둥둥 떠있는 둥근 카드 같은 "티 나는" 패턴을 의도적으로 피한다. brand_color는 제품별로
     다르게 넘겨야 한다(CharisLab 보라색을 모든 제품에 그대로 쓰면 안 됨 - 실측 피드백)."""
@@ -125,3 +126,174 @@ def render_card_news(
     buf = BytesIO()
     canvas.save(buf, format="PNG")
     return buf.getvalue()
+
+
+def render_overlay(
+    illustration_bytes: bytes,
+    headline: str,
+    subtext: str,
+    product: str,
+    page_label: str | None = None,
+    brand_color: tuple[int, int, int] = DEFAULT_BRAND,
+) -> bytes:
+    """레이아웃 스타일 2/4 "overlay" - 풀블리드 사진 전체 위에 하단 다크 그라데이션 스크림을 깔고
+    그 위에 흰 텍스트를 얹는다. 인스타그램에서 가장 흔한 "사진 위에 텍스트" 스타일."""
+    photo = _crop_to_ratio(illustration_bytes, CANVAS, CANVAS).convert("RGBA")
+
+    # 하단 그라데이션 스크림 - 세로 1px 그라데이션 마스크를 만들어 확장(위는 투명, 아래로 갈수록 불투명)
+    scrim_h = int(CANVAS * 0.55)
+    gradient = Image.new("L", (1, scrim_h))
+    for y in range(scrim_h):
+        gradient.putpixel((0, y), int(235 * (y / scrim_h) ** 1.6))
+    gradient = gradient.resize((CANVAS, scrim_h))
+    black_layer = Image.new("RGBA", (CANVAS, scrim_h), (10, 8, 20, 255))
+    scrim = Image.composite(black_layer, Image.new("RGBA", (CANVAS, scrim_h), (0, 0, 0, 0)), gradient)
+    photo.paste(scrim, (0, CANVAS - scrim_h), scrim)
+
+    canvas = photo.convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    pad_x = 64
+
+    badge_font = _font("SemiBold", 26)
+    badge_pad_x, badge_pad_y = 22, 10
+    badge_w = draw.textlength(product, font=badge_font) + badge_pad_x * 2
+    badge_h = 26 + badge_pad_y * 2
+    badge_top = CANVAS - scrim_h + 36
+    draw.rounded_rectangle(
+        [(pad_x, badge_top), (pad_x + badge_w, badge_top + badge_h)], radius=badge_h / 2, fill=brand_color
+    )
+    draw.text((pad_x + badge_pad_x, badge_top + badge_pad_y - 1), product, font=badge_font, fill=WHITE)
+
+    headline_font = _font("ExtraBold", 58)
+    subtext_font = _font("Medium", 30)
+    headline_lines = _wrap_text(draw, headline, headline_font, CANVAS - pad_x * 2)[:2]
+    subtext_lines = _wrap_text(draw, subtext, subtext_font, CANVAS - pad_x * 2)[:2]
+
+    label_reserve = 56 if page_label else 24
+    y = CANVAS - label_reserve - len(subtext_lines) * 40 - len(headline_lines) * 68 - 16
+    for line in headline_lines:
+        draw.text((pad_x, y), line, font=headline_font, fill=WHITE)
+        y += 68
+    y += 6
+    for line in subtext_lines:
+        draw.text((pad_x, y), line, font=subtext_font, fill=(222, 222, 228))
+        y += 40
+
+    if page_label:
+        label_font = _font("SemiBold", 24)
+        label_w = draw.textlength(page_label, font=label_font)
+        draw.text((CANVAS - pad_x - label_w, CANVAS - 56), page_label, font=label_font, fill=(222, 222, 228))
+
+    buf = BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def render_bold_type(
+    illustration_bytes: bytes,
+    headline: str,
+    subtext: str,
+    product: str,
+    page_label: str | None = None,
+    brand_color: tuple[int, int, int] = DEFAULT_BRAND,
+) -> bytes:
+    """레이아웃 스타일 3/4 "bold_type" - 사진은 작은 정사각 썸네일로만 쓰고, 화면 대부분을 초대형
+    타이포그래피 헤드라인이 채우는 "질문/후킹 카드" 스타일. 후킹 슬라이드에 특히 효과적."""
+    canvas = Image.new("RGB", (CANVAS, CANVAS), BG)
+    draw = ImageDraw.Draw(canvas)
+    pad_x = 64
+
+    badge_font = _font("SemiBold", 26)
+    badge_pad_x, badge_pad_y = 22, 10
+    badge_w = draw.textlength(product, font=badge_font) + badge_pad_x * 2
+    badge_h = 26 + badge_pad_y * 2
+    draw.rounded_rectangle([(pad_x, 64), (pad_x + badge_w, 64 + badge_h)], radius=badge_h / 2, fill=brand_color)
+    draw.text((pad_x + badge_pad_x, 64 + badge_pad_y - 1), product, font=badge_font, fill=WHITE)
+
+    thumb_size = 340
+    thumb = _crop_to_ratio(illustration_bytes, thumb_size, thumb_size)
+    canvas.paste(thumb, (CANVAS - pad_x - thumb_size, 64))
+
+    headline_font = _font("Black", 92)
+    headline_lines = _wrap_text(draw, headline, headline_font, CANVAS - pad_x * 2)[:3]
+    y = 480
+    for line in headline_lines:
+        draw.text((pad_x, y), line, font=headline_font, fill=INK)
+        y += 104
+
+    subtext_font = _font("SemiBold", 34)
+    subtext_lines = _wrap_text(draw, subtext, subtext_font, CANVAS - pad_x * 2)[:2]
+    y += 20
+    for line in subtext_lines:
+        draw.text((pad_x, y), line, font=subtext_font, fill=brand_color)
+        y += 46
+
+    if page_label:
+        label_font = _font("SemiBold", 24)
+        label_w = draw.textlength(page_label, font=label_font)
+        draw.text((CANVAS - pad_x - label_w, CANVAS - 56), page_label, font=label_font, fill=_lighten(INK, 0.5))
+
+    buf = BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def render_split(
+    illustration_bytes: bytes,
+    headline: str,
+    subtext: str,
+    product: str,
+    page_label: str | None = None,
+    brand_color: tuple[int, int, int] = DEFAULT_BRAND,
+) -> bytes:
+    """레이아웃 스타일 4/4 "split" - 세로 2분할: 좌측 42% 브랜드 컬러 블록 위에 텍스트,
+    우측 58% 풀블리드 사진."""
+    canvas = Image.new("RGB", (CANVAS, CANVAS), brand_color)
+    draw = ImageDraw.Draw(canvas)
+
+    left_w = int(CANVAS * 0.42)
+    right_w = CANVAS - left_w
+    photo = _crop_to_ratio(illustration_bytes, right_w, CANVAS)
+    canvas.paste(photo, (left_w, 0))
+
+    pad_x = 44
+    content_w = left_w - pad_x * 2
+    subtext_color = _lighten(brand_color, 0.85)
+
+    badge_font = _font("SemiBold", 24)
+    badge_pad_x, badge_pad_y = 18, 8
+    badge_w = draw.textlength(product, font=badge_font) + badge_pad_x * 2
+    badge_h = 24 + badge_pad_y * 2
+    draw.rounded_rectangle([(pad_x, 56), (pad_x + badge_w, 56 + badge_h)], radius=badge_h / 2, fill=WHITE)
+    draw.text((pad_x + badge_pad_x, 56 + badge_pad_y - 1), product, font=badge_font, fill=brand_color)
+
+    headline_font = _font("ExtraBold", 46)
+    subtext_font = _font("Medium", 26)
+    headline_lines = _wrap_text(draw, headline, headline_font, content_w)[:4]
+    subtext_lines = _wrap_text(draw, subtext, subtext_font, content_w)[:3]
+
+    total_h = len(headline_lines) * 54 + 16 + len(subtext_lines) * 34
+    y = (CANVAS - total_h) // 2
+    for line in headline_lines:
+        draw.text((pad_x, y), line, font=headline_font, fill=WHITE)
+        y += 54
+    y += 16
+    for line in subtext_lines:
+        draw.text((pad_x, y), line, font=subtext_font, fill=subtext_color)
+        y += 34
+
+    if page_label:
+        label_font = _font("SemiBold", 22)
+        draw.text((pad_x, CANVAS - 50), page_label, font=label_font, fill=subtext_color)
+
+    buf = BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+RENDERERS: dict[str, Callable[..., bytes]] = {
+    "banded": render_banded,
+    "overlay": render_overlay,
+    "bold_type": render_bold_type,
+    "split": render_split,
+}
