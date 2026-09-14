@@ -6,7 +6,9 @@ from app.db.supabase_client import get_supabase
 from app.graphs.schemas import CreativeBrief, DirectorReview
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import append_download_cta, canonical_product, fetch_products, hex_to_rgb
-from app.tools.ai.image.card_composer import compose_marketing_card
+from app.tools.ai.image.card_composer import compose_instatoon_panel, compose_marketing_card
+from app.tools.ai.image.card_renderer import DEFAULT_BRAND
+from app.tools.ai.image.mascot import ensure_mascot
 from app.tools.ai.image.storage import upload_marketing_image
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
@@ -16,21 +18,28 @@ from app.workers.rag_worker import rag_search
 llm = get_llm()
 
 BRIEF_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. CEO의 지시와 (있다면) 제품 특징 문서를
-참고해서 홍보할 제품(product), 게시할 채널(channel: instagram|facebook|tiktok|threads), 그리고
-슬라이드별 주제 목록(slide_topics, 3~5개)을 정하세요. 채널이 명시되지 않으면 지시 맥락상 가장
-적합한 채널 하나를 고르세요.
+참고해서 홍보할 제품(product), 게시할 채널(channel: instagram|facebook|tiktok|threads), 콘텐츠
+형식(format), 그리고 슬라이드/컷별 주제 목록(slide_topics)을 정하세요. 채널이 명시되지 않으면 지시
+맥락상 가장 적합한 채널 하나를 고르세요.
 
-당신이 정한 slide_topics만 보고 콘텐츠 전략가(카피 담당)와 비주얼 디자이너(이미지 담당)가 서로의
-결과물을 못 본 채 동시에 작업합니다 — 그러니 각 슬라이드가 정확히 뭘 다루는지 구체적으로 적어야
-두 사람의 결과물이 나중에 자연스럽게 맞아떨어집니다(예: "1번: '매일 반복되는 벨소리, 지겹지
+**형식(format) 선택**: card_news(기존 카드뉴스)와 instatoon(마스코트 말풍선 만화) 중에서 상황과
+벤치마킹 인사이트에 맞게 고르세요. 기능/스펙을 명확히 전달해야 하면 card_news, 짧고 공감 가는
+에피소드로 자연스럽게 제품을 소개하고 싶으면(요즘 유행하는 형식) instatoon이 적합합니다. CEO가
+형식을 직접 지정하지 않았다면 매번 같은 형식만 고르지 말고 적극적으로 섞어서 다양성을 확보하세요.
+
+당신이 정한 slide_topics만 보고 콘텐츠 전략가(카피/대화 담당)와 비주얼 디자이너(이미지 담당)가
+서로의 결과물을 못 본 채 동시에 작업합니다 — 그러니 각 슬라이드/컷이 정확히 뭘 다루는지 구체적으로
+적어야 두 사람의 결과물이 나중에 자연스럽게 맞아떨어집니다(예: "1번: '매일 반복되는 벨소리, 지겹지
 않나요?' 식의 질문형 후킹" 처럼 톤/내용을 함께 지정).
 
-슬라이드 구성: 1번은 후킹, 중간은 기능/베네핏을 하나씩, 마지막은 CTA.
+슬라이드/컷 구성: card_news는 3~5개(1번은 후킹, 중간은 기능/베네핏을 하나씩, 마지막은 CTA).
+instatoon은 3~4개(짧은 에피소드 - 상황 설정 → 공감되는 갈등/불편 → 제품으로 자연스럽게 해결되는
+반전/마무리, 마지막 컷에 부드러운 다운로드 유도).
 
 **마케팅 벤치마킹 인사이트 반영(중요)**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안의 구체적인
-패턴(후킹 방식, 슬라이드 구성, 캡션 톤, CTA 문구 스타일 등) 중 최소 1~2가지를 이번 슬라이드 주제
-구성에 실제로 적용하세요. 매번 비슷한 구성으로만 만들면 안 됩니다 — 지난 번과는 확실히 다른 후킹
-방식/구성을 시도하세요."""
+패턴(후킹 방식, 슬라이드 구성, 캡션 톤, CTA 문구 스타일, 인스타툰 에피소드 소재/컷 구성 등) 중
+최소 1~2가지를 이번 구성에 실제로 적용하세요. 매번 비슷한 구성으로만 만들면 안 됩니다 — 지난 번과는
+확실히 다른 후킹 방식/구성을 시도하세요."""
 
 DIRECTOR_REVIEW_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. 콘텐츠 전략가가 쓴 캡션과
 비주얼 디자이너가 준비한 슬라이드 구성이 서로 잘 어울리는지 검토하세요. 캡션이 슬라이드 내용과
@@ -111,35 +120,54 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
     assets = get_supabase().table("product_assets").select("id, storage_path").execute().data
     assets_by_id = {a["id"]: a for a in assets}
 
-    brand_color = hex_to_rgb((products_by_name.get(canonical_product(brief["product"])) or {}).get("brand_color"))
+    product_row = products_by_name.get(canonical_product(brief["product"])) or {}
+    brand_color = hex_to_rgb(product_row.get("brand_color")) or DEFAULT_BRAND
     total = len(merged_slides)
     image_urls = []
-    async with httpx.AsyncClient(timeout=30) as client:
+
+    if brief.get("format") == "instatoon":
+        # 인스타툰: 마스코트 참조 이미지를 한 번만 준비하고, 모든 컷에서 재사용해 캐릭터 외형을
+        # 최대한 일관되게 유지한다(마스코트 캐릭터라 실제 스크린샷/AI 사진 생성 경로는 안 씀).
+        mascot_bytes = await ensure_mascot(product_row or {"name": brief["product"]})
         for i, slide in enumerate(merged_slides):
-            kwargs = {
-                "page_label": f"{i + 1}/{total}",
-                "layout_style": slide.get("layout_style", "banded"),
-            }
-            if brand_color:
-                kwargs["brand_color"] = brand_color
-
-            asset = assets_by_id.get(slide.get("real_screenshot_asset_id") or "")
-            if asset:
-                public_url = get_supabase().storage.from_("product-assets").get_public_url(asset["storage_path"])
-                resp = await client.get(public_url)
-                if resp.status_code == 200:
-                    kwargs["illustration_bytes"] = resp.content
-
-            card_bytes = await compose_marketing_card(
+            panel_bytes = await compose_instatoon_panel(
+                mascot_bytes,
                 slide["image_prompt"],
                 slide["headline"],
-                slide["subtext"],
+                slide.get("subtext", ""),
                 brief["product"],
+                page_label=f"{i + 1}/{total}",
+                brand_color=brand_color,
                 thread_id=thread_id,
                 agent_name="VisualDesigner",
-                **kwargs,
             )
-            image_urls.append(upload_marketing_image(card_bytes))
+            image_urls.append(upload_marketing_image(panel_bytes))
+    else:
+        async with httpx.AsyncClient(timeout=30) as client:
+            for i, slide in enumerate(merged_slides):
+                kwargs = {
+                    "page_label": f"{i + 1}/{total}",
+                    "layout_style": slide.get("layout_style", "banded"),
+                    "brand_color": brand_color,
+                }
+
+                asset = assets_by_id.get(slide.get("real_screenshot_asset_id") or "")
+                if asset:
+                    public_url = get_supabase().storage.from_("product-assets").get_public_url(asset["storage_path"])
+                    resp = await client.get(public_url)
+                    if resp.status_code == 200:
+                        kwargs["illustration_bytes"] = resp.content
+
+                card_bytes = await compose_marketing_card(
+                    slide["image_prompt"],
+                    slide["headline"],
+                    slide["subtext"],
+                    brief["product"],
+                    thread_id=thread_id,
+                    agent_name="VisualDesigner",
+                    **kwargs,
+                )
+                image_urls.append(upload_marketing_image(card_bytes))
 
     review = await llm.complete_structured(
         [
@@ -159,6 +187,7 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
     marketing_post = {
         "product": brief["product"],
         "channel": brief["channel"],
+        "format": brief.get("format", "card_news"),
         "caption": caption,
         "slides": merged_slides,
         "image_urls": image_urls,

@@ -412,6 +412,8 @@ export interface ProductOut {
   android_url: string | null;
   brand_color: string | null;
   description: string | null;
+  mascot_prompt: string | null;
+  mascot_url: string | null;
 }
 
 export async function listProducts(): Promise<ProductOut[]> {
@@ -439,7 +441,7 @@ export async function createProduct(
 
 export async function updateProduct(
   name: string,
-  patch: Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description">>,
+  patch: Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description" | "mascot_prompt">>,
 ): Promise<ProductOut> {
   const res = await fetch(`${API_BASE}/products/${encodeURIComponent(name)}`, {
     method: "PATCH",
@@ -448,6 +450,17 @@ export async function updateProduct(
   });
   if (!res.ok) {
     throw new Error((await res.json()).detail ?? "product update failed");
+  }
+  return res.json();
+}
+
+export async function regenerateMascot(name: string): Promise<ProductOut> {
+  const res = await fetch(`${API_BASE}/products/${encodeURIComponent(name)}/mascot/regenerate`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error((await res.json()).detail ?? "mascot regenerate failed");
   }
   return res.json();
 }

@@ -23,6 +23,7 @@ def _marketing_payload(state: OSState) -> dict:
         "type": "marketing_post_approval",
         "product": post.get("product"),
         "channel": post.get("channel"),
+        "format": post.get("format", "card_news"),
         "caption": post.get("caption"),
         "slides": post.get("slides", []),
         "image_urls": post.get("image_urls", []),

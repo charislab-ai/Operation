@@ -17,3 +17,13 @@ class MockImageGenProvider:
         buf = BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()
+
+    async def edit_bytes(
+        self,
+        reference_bytes: bytes,
+        prompt: str,
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> bytes:
+        return await self.generate_bytes(prompt, thread_id=thread_id, agent_name=agent_name)

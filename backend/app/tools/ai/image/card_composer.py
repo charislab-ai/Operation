@@ -1,5 +1,5 @@
 from app.tools.ai.image import get_image_gen
-from app.tools.ai.image.card_renderer import DEFAULT_BRAND, RENDERERS, render_banded
+from app.tools.ai.image.card_renderer import DEFAULT_BRAND, RENDERERS, render_banded, render_comic_panel
 
 
 async def compose_marketing_card(
@@ -30,3 +30,24 @@ async def compose_marketing_card(
         )
     renderer = RENDERERS.get(layout_style, render_banded)
     return renderer(illustration_bytes, headline, subtext, product, page_label, brand_color)
+
+
+async def compose_instatoon_panel(
+    mascot_reference_bytes: bytes,
+    scene_prompt: str,
+    dialogue: str,
+    narration: str,
+    product: str,
+    page_label: str | None = None,
+    brand_color: tuple[int, int, int] = DEFAULT_BRAND,
+    thread_id: str | None = None,
+    agent_name: str | None = None,
+) -> bytes:
+    """인스타툰(말풍선 만화) 한 컷을 만든다. mascot_reference_bytes(mascot.py에서 만든 고정 캐릭터
+    참조 이미지)를 edit_bytes에 넘겨 이 컷의 장면(scene_prompt: 포즈/표정/배경)을 그리게 하고,
+    거기에 말풍선(dialogue)/자막(narration)을 PIL로 합성한다 - compose_marketing_card와 마찬가지로
+    텍스트는 AI에 맡기지 않고 정확하게 얹는다."""
+    panel_bytes = await get_image_gen().edit_bytes(
+        mascot_reference_bytes, scene_prompt, thread_id=thread_id, agent_name=agent_name
+    )
+    return render_comic_panel(panel_bytes, dialogue, narration, product, page_label, brand_color)

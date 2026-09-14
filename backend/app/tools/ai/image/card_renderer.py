@@ -297,3 +297,89 @@ RENDERERS: dict[str, Callable[..., bytes]] = {
     "bold_type": render_bold_type,
     "split": render_split,
 }
+
+
+def render_comic_panel(
+    illustration_bytes: bytes,
+    dialogue: str,
+    narration: str,
+    product: str,
+    page_label: str | None = None,
+    brand_color: tuple[int, int, int] = DEFAULT_BRAND,
+) -> bytes:
+    """인스타툰(말풍선 만화) 한 컷 - 마스코트가 등장하는 장면(illustration_bytes, mascot.py의
+    참조 이미지를 기반으로 편집 생성됨)을 풀블리드로 깔고, 상단에 대화 말풍선(dialogue), 있으면
+    하단에 자막바(narration, 상황 설명/캡션)를 얹는다. RENDERERS 딕셔너리는 카드뉴스 4종 전용이라
+    이 함수는 별도로 export한다(card_composer.compose_instatoon_panel이 직접 호출)."""
+    canvas = _crop_to_ratio(illustration_bytes, CANVAS, CANVAS)
+    draw = ImageDraw.Draw(canvas)
+    pad_x = 64
+
+    # 상단 말풍선(대화)
+    bubble_font = _font("Bold", 40)
+    bubble_max_w = CANVAS - pad_x * 2 - 80
+    bubble_lines = _wrap_text(draw, dialogue, bubble_font, bubble_max_w)[:3] if dialogue else []
+    line_h = 50
+    bubble_pad_x, bubble_pad_y = 40, 32
+    bubble_top = 56
+    bubble_w = CANVAS - pad_x * 2
+    bubble_h = max(len(bubble_lines), 1) * line_h + bubble_pad_y * 2
+    draw.rounded_rectangle(
+        [(pad_x, bubble_top), (pad_x + bubble_w, bubble_top + bubble_h)],
+        radius=32,
+        fill=WHITE,
+        outline=INK,
+        width=4,
+    )
+    tail_cx = pad_x + bubble_w // 2
+    tail_top = bubble_top + bubble_h
+    draw.polygon(
+        [(tail_cx - 22, tail_top - 3), (tail_cx + 22, tail_top - 3), (tail_cx, tail_top + 30)],
+        fill=WHITE,
+        outline=INK,
+    )
+    ty = bubble_top + bubble_pad_y
+    for line in bubble_lines:
+        draw.text((pad_x + bubble_pad_x, ty), line, font=bubble_font, fill=INK)
+        ty += line_h
+
+    # 제품 뱃지 (우상단, 말풍선과 안 겹치게 그 아래)
+    badge_font = _font("SemiBold", 24)
+    badge_pad_x, badge_pad_y = 18, 8
+    badge_w = draw.textlength(product, font=badge_font) + badge_pad_x * 2
+    badge_h = 24 + badge_pad_y * 2
+    badge_top = bubble_top + bubble_h + 46
+    draw.rounded_rectangle(
+        [(CANVAS - pad_x - badge_w, badge_top), (CANVAS - pad_x, badge_top + badge_h)],
+        radius=badge_h / 2,
+        fill=brand_color,
+    )
+    draw.text(
+        (CANVAS - pad_x - badge_w + badge_pad_x, badge_top + badge_pad_y - 1),
+        product,
+        font=badge_font,
+        fill=WHITE,
+    )
+
+    # 하단 자막바 (narration이 있을 때만)
+    if narration:
+        bar_h = 104
+        draw.rectangle([(0, CANVAS - bar_h), (CANVAS, CANVAS)], fill=INK)
+        caption_font = _font("Medium", 28)
+        caption_lines = _wrap_text(draw, narration, caption_font, CANVAS - pad_x * 2)[:2]
+        cy = CANVAS - bar_h + (bar_h - len(caption_lines) * 36) // 2
+        for line in caption_lines:
+            line_w = draw.textlength(line, font=caption_font)
+            draw.text(((CANVAS - line_w) // 2, cy), line, font=caption_font, fill=WHITE)
+            cy += 36
+
+    if page_label:
+        label_font = _font("SemiBold", 22)
+        label_color = WHITE if narration else _lighten(INK, 0.4)
+        label_w = draw.textlength(page_label, font=label_font)
+        label_y = CANVAS - 44 if narration else CANVAS - 40
+        draw.text((CANVAS - pad_x - label_w, label_y), page_label, font=label_font, fill=label_color)
+
+    buf = BytesIO()
+    canvas.save(buf, format="PNG")
+    return buf.getvalue()

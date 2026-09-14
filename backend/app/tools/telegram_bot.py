@@ -41,16 +41,19 @@ def _format_finance_entry_card(payload: dict, footer: str) -> str:
 def _format_marketing_post_card(payload: dict, footer: str) -> str:
     slides = payload.get("slides", [])
     image_urls = payload.get("image_urls", [])
+    is_instatoon = payload.get("format") == "instatoon"
+    unit = "컷" if is_instatoon else "장"
     lines = [
         "📣 마케팅 콘텐츠 확인",
         "",
         f"제품: {payload.get('product', '-')}",
         f"채널: {payload.get('channel', '-')}",
-        f"카드뉴스 {len(image_urls)}장",
+        f"형식: {'인스타툰' if is_instatoon else '카드뉴스'}",
+        f"{'인스타툰' if is_instatoon else '카드뉴스'} {len(image_urls)}{unit}",
         "",
     ]
     for i, slide in enumerate(slides):
-        lines.append(f"[{i + 1}장] {slide.get('headline', '-')} — {slide.get('subtext', '-')}")
+        lines.append(f"[{i + 1}{unit}] {slide.get('headline', '-')} — {slide.get('subtext', '-')}")
     lines.append("")
     lines.append(payload.get("caption", ""))
     lines.append("")

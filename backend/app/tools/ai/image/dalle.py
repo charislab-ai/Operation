@@ -54,3 +54,37 @@ class DalleImageGenProvider:
             cost_usd=None,
         )
         return base64.b64decode(response.data[0].b64_json)
+
+    async def edit_bytes(
+        self,
+        reference_bytes: bytes,
+        prompt: str,
+        *,
+        thread_id: str | None = None,
+        agent_name: str | None = None,
+    ) -> bytes:
+        """인스타툰 마스코트 등 - 참조 이미지를 그대로 넘겨 캐릭터 외형을 최대한 유지하면서
+        포즈/배경만 바꾼다. 마스크를 안 주면 gpt-image-1이 전체 이미지를 참고해서 프롬프트대로
+        다시 그린다(완벽한 픽셀 일치는 아니지만 매번 새로 생성하는 것보다 훨씬 일관적 - 실측 확인됨).
+        """
+        response = await _client().images.edit(
+            model="gpt-image-1",
+            image=("reference.png", reference_bytes, "image/png"),
+            prompt=prompt,
+            size="1024x1024",
+            quality=settings.image_quality,
+            n=1,
+        )
+        usage = getattr(response, "usage", None)
+        log_ai_usage(
+            thread_id=thread_id,
+            agent_name=agent_name,
+            provider="dalle",
+            kind="image",
+            input_tokens=getattr(usage, "input_tokens", None) if usage else None,
+            output_tokens=getattr(usage, "output_tokens", None) if usage else None,
+            total_tokens=getattr(usage, "total_tokens", None) if usage else None,
+            image_count=1,
+            cost_usd=None,
+        )
+        return base64.b64decode(response.data[0].b64_json)

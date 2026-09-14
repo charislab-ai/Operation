@@ -440,12 +440,15 @@ export default function WorkOrdersView() {
                   {outputs?.marketing_post && (
                     <div className="rounded-md border border-slate-800 p-3 text-sm">
                       <div className="mb-2 flex items-center gap-2 font-medium text-slate-200">
-                        마케팅 카드뉴스
+                        마케팅 콘텐츠
                         <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                           {String(outputs.marketing_post.product ?? "")}
                         </span>
                         <span className="rounded bg-slate-800 px-2 py-0.5 text-xs text-slate-300">
                           {String(outputs.marketing_post.channel ?? "")}
+                        </span>
+                        <span className="rounded bg-brand-purple/20 px-2 py-0.5 text-xs text-brand-purple">
+                          {outputs.marketing_post.format === "instatoon" ? "인스타툰" : "카드뉴스"}
                         </span>
                       </div>
                       <div className="mb-2 whitespace-pre-wrap text-slate-300">

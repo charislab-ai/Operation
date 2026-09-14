@@ -4,6 +4,7 @@ import {
   deleteProductAsset,
   listProductAssets,
   listProducts,
+  regenerateMascot,
   updateProduct,
   updateProductAsset,
   uploadProductAsset,
@@ -16,9 +17,16 @@ interface ProductFormState {
   android_url: string;
   brand_color: string;
   description: string;
+  mascot_prompt: string;
 }
 
-const EMPTY_FORM: ProductFormState = { ios_url: "", android_url: "", brand_color: "", description: "" };
+const EMPTY_FORM: ProductFormState = {
+  ios_url: "",
+  android_url: "",
+  brand_color: "",
+  description: "",
+  mascot_prompt: "",
+};
 
 function toFormState(p: ProductOut): ProductFormState {
   return {
@@ -26,6 +34,7 @@ function toFormState(p: ProductOut): ProductFormState {
     android_url: p.android_url ?? "",
     brand_color: p.brand_color ?? "",
     description: p.description ?? "",
+    mascot_prompt: p.mascot_prompt ?? "",
   };
 }
 
@@ -214,6 +223,19 @@ export default function AppManagementView() {
       setError((err as Error).message);
     } finally {
       setSavingInfo(false);
+    }
+  };
+
+  const handleRegenerateMascot = async (name: string) => {
+    setBusyId(`mascot:${name}`);
+    setError(null);
+    try {
+      await regenerateMascot(name);
+      load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -490,6 +512,16 @@ export default function AppManagementView() {
                         className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
                       />
                     </label>
+                    <label className="text-xs text-slate-500">
+                      인스타툰 마스코트 캐릭터 묘사 (선택, 비워두면 기본 스타일로 생성)
+                      <textarea
+                        value={infoForm.mascot_prompt}
+                        onChange={(e) => setInfoForm({ ...infoForm, mascot_prompt: e.target.value })}
+                        rows={2}
+                        placeholder="예: 동글동글한 강아지 캐릭터, 파란색 목도리를 두름"
+                        className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-500"
+                      />
+                    </label>
                     <div className="mt-1 flex gap-2">
                       <button
                         onClick={() => saveInfo(p.name)}
@@ -540,6 +572,29 @@ export default function AppManagementView() {
                     </button>
                   </div>
                 )}
+
+                <div className="mb-4 flex items-center gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-3">
+                  <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-md bg-slate-800">
+                    {p.mascot_url ? (
+                      <img src={p.mascot_url} alt={`${p.name} 마스코트`} className="h-full w-full object-contain" />
+                    ) : (
+                      <span className="text-center text-[10px] text-slate-500">미생성</span>
+                    )}
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-xs font-medium text-slate-400">인스타툰 마스코트</span>
+                    <span className="text-[11px] text-slate-500">
+                      캐릭터 묘사를 바꾼 뒤엔 재생성해야 새 모습이 반영됩니다.
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleRegenerateMascot(p.name)}
+                    disabled={busyId === `mascot:${p.name}`}
+                    className="flex-shrink-0 rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {busyId === `mascot:${p.name}` ? "생성중..." : p.mascot_url ? "재생성" : "생성"}
+                  </button>
+                </div>
 
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium text-slate-400">
