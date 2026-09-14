@@ -37,7 +37,10 @@ class Settings(BaseSettings):
     video_provider: str = "sora"
     vision_provider: str = "gemini"
     embedding_provider: str = "openai"
-    gemini_model: str = "gemini-2.5-flash"
+    # "gemini-2.5-flash"는 신규 키 발급 계정에서 404로 막힌 게 실측 확인됨(구글이 신규 사용자에게
+    # 구버전 모델 접근을 막음) - latest 별칭을 써서 이런 모델 세대교체에 자동으로 따라가게 함
+    gemini_model: str = "gemini-flash-latest"
+    gemini_image_model: str = "gemini-3.1-flash-image"
 
     anthropic_api_key: str = ""
     openai_api_key: str = ""
