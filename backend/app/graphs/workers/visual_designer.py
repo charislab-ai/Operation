@@ -4,6 +4,7 @@ from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.schemas import VisualPlan
 from app.graphs.state import OSState
+from app.graphs.workers._marketing_shared import canonical_product, fetch_products
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
@@ -64,6 +65,13 @@ lighting" - "a cute blue creature" 같은 외형 묘사는 넣지 마세요(참�
 
 - 표정/감정을 명확하게(놀람, 답답함, 만족감 등) 묘사해 대화 없이도 상황이 읽히게 하세요
 - 배경은 실제 사용 맥락(집, 카페, 지하철, 침대 등)을 구체적으로
+- **매 컷 image_prompt의 맨 끝에 반드시 다음 스타일 고정 문구를 그대로 붙이세요**: "Korean webtoon
+  style, simple line art, flat colors, clean bold outlines, minimal shading, no photorealistic
+  rendering, no glossy 3D render" — 실제 웹툰/인스타툰처럼 보이려면 그림체가 컷마다 흔들리면 안
+  되고, 매번 같은 스타일 지시를 명시해야 참조 이미지 편집 결과가 일관됩니다
+- 아래에 브랜드 컬러가 주어지면, 배경 소품 하나 정도(예: 텀블러, 폰 케이스, 쿠션, 액자 등)에 그
+  색을 자연스럽게 살짝 반영하도록 1~2개 컷에서 지시하세요(과하게 모든 컷에 억지로 넣지 말 것 -
+  브랜드 노출은 은근하게)
 - 텍스트/말풍선/로고는 이미지에 넣지 말라고 명시하세요(말풍선은 별도로 합성됩니다)
 - real_screenshot_asset_id는 항상 null로 두세요(마스코트 만화라 실제 앱 스크린샷은 쓰지 않습니다)
 - layout_style 필드는 이 형식에서 안 쓰이니 기본값("banded") 그대로 두세요
@@ -81,7 +89,13 @@ async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
 
     if is_instatoon:
         # 인스타툰은 마스코트 캐릭터라 실제 앱 스크린샷을 안 쓰므로 조회 자체가 불필요.
-        assets_context = "(인스타툰 형식 - 실제 스크린샷 미사용)"
+        product_row = fetch_products().get(canonical_product(brief["product"])) or {}
+        brand_color_hex = product_row.get("brand_color")
+        assets_context = "(인스타툰 형식 - 실제 스크린샷 미사용)" + (
+            f"\n브랜드 컬러: {brand_color_hex} (배경 소품에 은근하게 반영용, 캐릭터 외형과는 무관)"
+            if brand_color_hex
+            else ""
+        )
     else:
         assets = (
             get_supabase()

@@ -15,6 +15,12 @@ DEFAULT_BRAND = (136, 106, 255)  # #886AFF - CharisLab 기본색(제품별 색�
 PHOTO_H = 620
 BAND_ACCENT_H = 6
 
+# 인스타툰 전용 캔버스 - 정사각형(1:1)이 아니라 4:5 세로형. 인스타그램 피드에서 정사각형보다
+# 화면을 더 많이 차지해 노출/스크롤 정지율에 유리하다는 게 실제 인스타툰 제작 가이드의 권장사항
+# (카드뉴스 4종은 브랜드 일관성상 기존 정사각형 그대로 유지, 인스타툰만 우선 적용).
+COMIC_W = 1080
+COMIC_H = 1350
+
 
 def _font(weight: str, size: int) -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(str(FONTS_DIR / f"Pretendard-{weight}.otf"), size)
@@ -308,21 +314,23 @@ def render_comic_panel(
     brand_color: tuple[int, int, int] = DEFAULT_BRAND,
 ) -> bytes:
     """인스타툰(말풍선 만화) 한 컷 - 마스코트가 등장하는 장면(illustration_bytes, mascot.py의
-    참조 이미지를 기반으로 편집 생성됨)을 풀블리드로 깔고, 상단에 대화 말풍선(dialogue), 있으면
-    하단에 자막바(narration, 상황 설명/캡션)를 얹는다. RENDERERS 딕셔너리는 카드뉴스 4종 전용이라
+    참조 이미지를 기반으로 편집 생성됨)을 4:5 세로형(COMIC_W x COMIC_H) 풀블리드로 깔고, 상단에
+    대화 말풍선(dialogue), 있으면 하단에 자막바(narration, 상황 설명/캡션)를 얹는다. 정사각형이
+    아니라 4:5인 이유는 인스타그램 피드에서 화면을 더 차지해 노출에 유리하기 때문(카드뉴스 4종은
+    브랜드 일관성상 정사각형 유지, 인스타툰만 세로형). RENDERERS 딕셔너리는 카드뉴스 4종 전용이라
     이 함수는 별도로 export한다(card_composer.compose_instatoon_panel이 직접 호출)."""
-    canvas = _crop_to_ratio(illustration_bytes, CANVAS, CANVAS)
+    canvas = _crop_to_ratio(illustration_bytes, COMIC_W, COMIC_H)
     draw = ImageDraw.Draw(canvas)
     pad_x = 64
 
     # 상단 말풍선(대화)
     bubble_font = _font("Bold", 40)
-    bubble_max_w = CANVAS - pad_x * 2 - 80
+    bubble_max_w = COMIC_W - pad_x * 2 - 80
     bubble_lines = _wrap_text(draw, dialogue, bubble_font, bubble_max_w)[:3] if dialogue else []
     line_h = 50
     bubble_pad_x, bubble_pad_y = 40, 32
-    bubble_top = 56
-    bubble_w = CANVAS - pad_x * 2
+    bubble_top = 64
+    bubble_w = COMIC_W - pad_x * 2
     bubble_h = max(len(bubble_lines), 1) * line_h + bubble_pad_y * 2
     draw.rounded_rectangle(
         [(pad_x, bubble_top), (pad_x + bubble_w, bubble_top + bubble_h)],
@@ -350,12 +358,12 @@ def render_comic_panel(
     badge_h = 24 + badge_pad_y * 2
     badge_top = bubble_top + bubble_h + 46
     draw.rounded_rectangle(
-        [(CANVAS - pad_x - badge_w, badge_top), (CANVAS - pad_x, badge_top + badge_h)],
+        [(COMIC_W - pad_x - badge_w, badge_top), (COMIC_W - pad_x, badge_top + badge_h)],
         radius=badge_h / 2,
         fill=brand_color,
     )
     draw.text(
-        (CANVAS - pad_x - badge_w + badge_pad_x, badge_top + badge_pad_y - 1),
+        (COMIC_W - pad_x - badge_w + badge_pad_x, badge_top + badge_pad_y - 1),
         product,
         font=badge_font,
         fill=WHITE,
@@ -363,22 +371,22 @@ def render_comic_panel(
 
     # 하단 자막바 (narration이 있을 때만)
     if narration:
-        bar_h = 104
-        draw.rectangle([(0, CANVAS - bar_h), (CANVAS, CANVAS)], fill=INK)
+        bar_h = 112
+        draw.rectangle([(0, COMIC_H - bar_h), (COMIC_W, COMIC_H)], fill=INK)
         caption_font = _font("Medium", 28)
-        caption_lines = _wrap_text(draw, narration, caption_font, CANVAS - pad_x * 2)[:2]
-        cy = CANVAS - bar_h + (bar_h - len(caption_lines) * 36) // 2
+        caption_lines = _wrap_text(draw, narration, caption_font, COMIC_W - pad_x * 2)[:2]
+        cy = COMIC_H - bar_h + (bar_h - len(caption_lines) * 36) // 2
         for line in caption_lines:
             line_w = draw.textlength(line, font=caption_font)
-            draw.text(((CANVAS - line_w) // 2, cy), line, font=caption_font, fill=WHITE)
+            draw.text(((COMIC_W - line_w) // 2, cy), line, font=caption_font, fill=WHITE)
             cy += 36
 
     if page_label:
         label_font = _font("SemiBold", 22)
         label_color = WHITE if narration else _lighten(INK, 0.4)
         label_w = draw.textlength(page_label, font=label_font)
-        label_y = CANVAS - 44 if narration else CANVAS - 40
-        draw.text((CANVAS - pad_x - label_w, label_y), page_label, font=label_font, fill=label_color)
+        label_y = COMIC_H - 48 if narration else COMIC_H - 44
+        draw.text((COMIC_W - pad_x - label_w, label_y), page_label, font=label_font, fill=label_color)
 
     buf = BytesIO()
     canvas.save(buf, format="PNG")

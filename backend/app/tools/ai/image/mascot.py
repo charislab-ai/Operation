@@ -10,16 +10,18 @@ import uuid
 import httpx
 
 from app.db.supabase_client import get_supabase
-from app.tools.ai.image import get_image_gen
+from app.tools.ai.image import get_instatoon_image_gen
 
 MASCOT_BUCKET = "product-assets"  # 이미 공개 버킷 - 새 버킷을 만들 필요 없음
 
 _DEFAULT_PROMPT_TEMPLATE = (
     "A single cute mascot character for a mobile app called '{name}', full-body character "
-    "reference sheet, centered, front-facing neutral pose, plain white background, simple flat "
-    "illustration style with thick clean outlines, friendly rounded shapes, big expressive eyes, "
-    "no text, no logo, no watermark, no drop shadow. Primary color should be inspired by the hex "
-    "color {brand_color}. App context: {description}"
+    "reference sheet, centered, front-facing neutral pose, plain white background. Korean webtoon "
+    "style, simple line art, flat colors, clean bold black outlines, minimal to no gradient "
+    "shading, no glossy 3D render, no photorealism - like a hand-drawn Instagram webtoon character, "
+    "not a 3D app icon mascot. Friendly rounded shapes, big expressive eyes capable of showing clear "
+    "emotion. No text, no logo, no watermark, no drop shadow. Primary color should be inspired by "
+    "the hex color {brand_color}. App context: {description}"
 )
 
 
@@ -54,7 +56,7 @@ async def ensure_mascot(product_row: dict, *, force: bool = False) -> bytes:
     prompt = product_row.get("mascot_prompt") or _default_prompt(
         name, product_row.get("description"), product_row.get("brand_color")
     )
-    image_bytes = await get_image_gen().generate_bytes(prompt)
+    image_bytes = await get_instatoon_image_gen().generate_bytes(prompt)
     storage_path = f"mascots/{uuid.uuid4()}.png"
     bucket.upload(storage_path, image_bytes, {"content-type": "image/png"})
 

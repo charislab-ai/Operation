@@ -1,4 +1,4 @@
-from app.tools.ai.image import get_image_gen
+from app.tools.ai.image import get_image_gen, get_instatoon_image_gen
 from app.tools.ai.image.card_renderer import DEFAULT_BRAND, RENDERERS, render_banded, render_comic_panel
 
 
@@ -47,7 +47,7 @@ async def compose_instatoon_panel(
     참조 이미지)를 edit_bytes에 넘겨 이 컷의 장면(scene_prompt: 포즈/표정/배경)을 그리게 하고,
     거기에 말풍선(dialogue)/자막(narration)을 PIL로 합성한다 - compose_marketing_card와 마찬가지로
     텍스트는 AI에 맡기지 않고 정확하게 얹는다."""
-    panel_bytes = await get_image_gen().edit_bytes(
+    panel_bytes = await get_instatoon_image_gen().edit_bytes(
         mascot_reference_bytes, scene_prompt, thread_id=thread_id, agent_name=agent_name
     )
     return render_comic_panel(panel_bytes, dialogue, narration, product, page_label, brand_color)

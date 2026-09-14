@@ -457,7 +457,14 @@ export default function WorkOrdersView() {
                       {Array.isArray(outputs.marketing_post.image_urls) && outputs.marketing_post.image_urls.length > 0 && (
                         <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
                           {(outputs.marketing_post.image_urls as string[]).map((url, i) => (
-                            <img key={i} src={url} alt={`slide ${i + 1}`} className="aspect-square w-full rounded object-cover" />
+                            <img
+                              key={i}
+                              src={url}
+                              alt={`slide ${i + 1}`}
+                              className={`w-full rounded bg-slate-950 object-contain ${
+                                outputs.marketing_post?.format === "instatoon" ? "aspect-[4/5]" : "aspect-square"
+                              }`}
+                            />
                           ))}
                         </div>
                       )}
