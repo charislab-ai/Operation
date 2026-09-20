@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -25,6 +26,7 @@ from app.api import (
 from app.auth.session import require_ceo
 from app.config import settings
 from app.db.checkpointer import close_checkpointer, init_checkpointer
+from app.db.keepalive import run_keepalive_loop
 from app.graphs.build import build_graph
 from app.tools.telegram_bot import get_bot
 
@@ -39,7 +41,10 @@ async def lifespan(app: FastAPI):
             await get_bot().set_my_commands([BotCommand("지시", "새 업무 지시 등록")])
         except Exception:
             pass
+    # Supabase 무료 프로젝트가 장기 미접속으로 비활성화되지 않도록 주기적으로 핑(app/db/keepalive.py)
+    keepalive_task = asyncio.create_task(run_keepalive_loop())
     yield
+    keepalive_task.cancel()
     await close_checkpointer()
 
 
