@@ -3,10 +3,17 @@ from functools import lru_cache
 from typing import Any
 
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from app.config import settings
 from app.db.ai_usage import log_ai_usage
 from app.tools.ai.llm.base import Message, SchemaT
+
+_ROLE_TO_MESSAGE_CLS: dict[str, type[BaseMessage]] = {
+    "system": SystemMessage,
+    "user": HumanMessage,
+    "assistant": AIMessage,
+}
 
 
 @lru_cache
@@ -20,8 +27,24 @@ def _model() -> ChatAnthropic:
     )
 
 
-def _to_lc_messages(messages: list[Message]) -> list[tuple[str, str]]:
-    return [(m.role, m.content) for m in messages]
+def _to_lc_messages(messages: list[Message]) -> list[BaseMessage]:
+    """system 메시지에 프롬프트 캐싱(cache_control)을 걸어 입력 토큰 비용을 아낀다.
+
+    각 워커의 SYSTEM_PROMPT는 코드에 고정된 텍스트라 호출할 때마다 글자 하나 안 바뀌고 그대로
+    재사용됨 - 캐싱에 이상적인 대상. 1시간 TTL로 캐싱해두면 그 시간 안의 재호출은 캐시 적중분에
+    대해 훨씬 싼 단가로 과금된다(실측: usage.cache_read_input_tokens > 0으로 확인). 프롬프트
+    내용 자체는 한 글자도 안 바뀌므로 결과물 품질에는 전혀 영향 없음 - 순수하게 과금 방식만
+    최적화하는 것. 짧은 시스템 프롬프트는 최소 캐싱 토큰 수(모델별 1024~2048)에 못 미쳐 그냥
+    일반 입력으로 처리될 뿐 손해는 없음."""
+    lc_messages: list[BaseMessage] = []
+    for m in messages:
+        cls = _ROLE_TO_MESSAGE_CLS.get(m.role, HumanMessage)
+        if m.role == "system":
+            content = [{"type": "text", "text": m.content, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+        else:
+            content = m.content
+        lc_messages.append(cls(content=content))
+    return lc_messages
 
 
 def _recover_from_malformed_tool_call(raw: Any, schema: type[SchemaT]) -> dict | None:
