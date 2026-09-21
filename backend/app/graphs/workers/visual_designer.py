@@ -4,7 +4,7 @@ from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.schemas import VisualPlan
 from app.graphs.state import OSState
-from app.graphs.workers._marketing_shared import canonical_product, fetch_products
+from app.graphs.workers._marketing_shared import canonical_product, fetch_products, original_ceo_text
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
@@ -29,6 +29,11 @@ SYSTEM_PROMPT_CARD_NEWS = """당신은 CharisLab의 비주얼 디자이너입니
 - 슬라이드마다 다른 장면(가족/친구/취미/일상/직장 등)을 골라 폭넓은 사용 사례를 보여주세요
   (지시에 특정 장면이 없는 한 매번 같은 장면으로만 고정하지 말 것)
 - 텍스트/로고는 이미지에 넣지 말라고 명시하세요(헤드라인/보조문구는 별도로 합성됩니다)
+
+**CEO 원문 확인(중요)**: 아래에 CEO의 원본 지시문이 함께 주어집니다. 색상/특정 요소/스타일 등
+이미지에 관한 구체적 요청이 있다면(예: "배경은 파란색으로", "이 스크린샷을 꼭 써줘") 절대 놓치지
+말고 image_prompt에 실제로 반영하세요 - slide_topics로 요약되면서 이런 구체적 요청이 누락되는
+문제가 실측(CEO 피드백)으로 확인됐습니다.
 
 **실제 앱 스크린샷 활용**: 아래에 등록된 실제 앱 스크린샷 목록이 주어지면, 그중 이번에 만들 제품과
 일치하고 슬라이드 주제와 맞는 게 있을 때만 최대 1~2개 슬라이드에서 real_screenshot_asset_id로
@@ -76,6 +81,9 @@ lighting" - "a cute blue creature" 같은 외형 묘사는 넣지 마세요(참�
 - real_screenshot_asset_id는 항상 null로 두세요(마스코트 만화라 실제 앱 스크린샷은 쓰지 않습니다)
 - layout_style 필드는 이 형식에서 안 쓰이니 기본값("banded") 그대로 두세요
 
+**CEO 원문 확인(중요)**: 아래에 CEO의 원본 지시문이 함께 주어집니다. 배경/소품/색상 등 구체적
+시각 요청이 있다면(캐릭터 외형 자체를 바꾸라는 요청이 아닌 한) 반드시 반영하세요.
+
 **마케팅 벤치마킹 인사이트 반영**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안에 인스타툰 관련
 인사이트(인기 계정의 컷 구성, 표정/구도 표현 방식 등)가 있으면 실제로 참고하세요."""
 
@@ -120,6 +128,7 @@ async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
     )
 
     user_content = (
+        f"[CEO 원본 지시문]\n{original_ceo_text(state)}\n\n"
         f"제품: {brief['product']}\n"
         f"슬라이드 주제({len(brief['slide_topics'])}개, 이 순서 그대로 작성):\n"
         + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(brief["slide_topics"]))

@@ -139,6 +139,7 @@ export interface DirectiveDetail {
   thread_id: string;
   ceo_directive: string;
   created_at: string;
+  status: string;
   active_departments: string[];
   worker_briefs: Record<string, string>;
   decisions: Record<string, string>;
@@ -211,7 +212,7 @@ export async function decideApproval(
   approvalId: string,
   decision: "approved" | "rejected" | "revision",
   comment?: string,
-): Promise<void> {
+): Promise<{ status: string }> {
   const res = await fetch(`${API_BASE}/approvals/${approvalId}/decide`, {
     method: "POST",
     headers: authHeaders({ "Content-Type": "application/json" }),
@@ -220,6 +221,30 @@ export async function decideApproval(
   if (!res.ok) {
     throw new Error((await res.json()).detail ?? "approval decision failed");
   }
+  return res.json();
+}
+
+export async function pauseDirective(threadId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/pause`, { method: "POST", headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "directive pause failed");
+}
+
+export async function resumeDirective(threadId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/resume`, { method: "POST", headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "directive resume failed");
+}
+
+export async function terminateDirective(threadId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}/terminate`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "directive terminate failed");
+}
+
+export async function deleteDirective(threadId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/directives/${threadId}`, { method: "DELETE", headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "directive delete failed");
 }
 
 export async function listDirectives(): Promise<DirectiveListItem[]> {

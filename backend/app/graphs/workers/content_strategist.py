@@ -3,6 +3,7 @@ from langchain_core.runnables import RunnableConfig
 from app.db.agent_runs import finish_run, start_run
 from app.graphs.schemas import ContentStrategy
 from app.graphs.state import OSState
+from app.graphs.workers._marketing_shared import original_ceo_text
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
@@ -17,6 +18,10 @@ SYSTEM_PROMPT_CARD_NEWS = """당신은 CharisLab의 콘텐츠 전략가입니다
 
 캡션에는 다운로드 링크를 직접 쓰지 마세요(별도로 붙습니다). **매번 문구와 구성을 다르게** 써서
 같은 지시라도 항상 다른 결과물이 나오게 하세요.
+
+**CEO 원문 확인(중요)**: 아래에 CEO의 원본 지시문이 함께 주어집니다. 디렉터가 정리한 slide_topics가
+우선이지만, 원문에 카피/톤/문구에 대한 구체적 요청(예: "이런 문구를 꼭 넣어줘")이 있다면 놓치지
+말고 반영하세요.
 
 **마케팅 벤치마킹 인사이트 반영(중요)**: 아래에 최근 벤치마킹 리포트가 주어지면, 그 안의 구체적인
 캡션 톤/해시태그 전략/CTA 문구 패턴 중 최소 1가지를 이번 카피에 실제로 적용하세요. 매번 비슷한
@@ -70,6 +75,7 @@ async def content_strategist_node(state: OSState, config: RunnableConfig) -> dic
     )
 
     user_content = (
+        f"[CEO 원본 지시문]\n{original_ceo_text(state)}\n\n"
         f"제품: {brief['product']}\n채널: {brief['channel']}\n"
         f"슬라이드 주제({len(brief['slide_topics'])}개, 이 순서 그대로 작성):\n"
         + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(brief["slide_topics"]))

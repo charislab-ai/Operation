@@ -5,7 +5,13 @@ from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.schemas import CreativeBrief, DirectorReview
 from app.graphs.state import OSState
-from app.graphs.workers._marketing_shared import append_download_cta, canonical_product, fetch_products, hex_to_rgb
+from app.graphs.workers._marketing_shared import (
+    append_download_cta,
+    canonical_product,
+    fetch_products,
+    hex_to_rgb,
+    original_ceo_text,
+)
 from app.tools.ai.image.card_composer import compose_instatoon_panel, compose_marketing_card
 from app.tools.ai.image.card_renderer import DEFAULT_BRAND
 from app.tools.ai.image.mascot import ensure_mascot
@@ -32,6 +38,12 @@ BRIEF_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. CEO의 �
 적어야 두 사람의 결과물이 나중에 자연스럽게 맞아떨어집니다(예: "1번: '매일 반복되는 벨소리, 지겹지
 않나요?' 식의 질문형 후킹" 처럼 톤/내용을 함께 지정).
 
+**CEO 원문의 구체적 요청은 절대 누락하지 마세요(중요)**: CEO 지시에 색상/특정 요소/스타일/문구 등
+구체적인 시각적·카피적 요청이 있으면(예: "배경은 파란색으로", "우리 로고 꼭 넣어줘", "이 스크린샷
+써줘") 반드시 slide_topics 안에 그 요청을 명시적으로 적어서 전략가/디자이너에게 전달하세요 - 당신이
+요약하는 과정에서 이런 구체적 요청이 사라지면 안 됩니다. 전략가/디자이너에게도 CEO 원문이 별도로
+전달되지만, slide_topics에서부터 명확히 짚어주는 게 훨씬 안전합니다.
+
 슬라이드/컷 구성: card_news는 3~5개(1번은 후킹, 중간은 기능/베네핏을 하나씩, 마지막은 CTA).
 instatoon은 4~6개, 기승전결 구조로: 기(1컷, 상황 설정) → 승(1~2컷, 공감되는 불편/갈등이
 과장되게 심화됨 - 페인포인트를 코믹하게 부각) → 전(1~2컷, 제품으로 자연스럽게 해결되는 반전) →
@@ -51,11 +63,7 @@ DIRECTOR_REVIEW_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다.
 
 def _gather_context(state: OSState) -> tuple[str, dict[str, dict]]:
     """브리핑 작성에 필요한 지시문 + 참고 컨텍스트를 모은다."""
-    brief = state.get("worker_briefs", {}).get("marketing") or state["ceo_directive"]
-    revision_note = state.get("revision_notes", {}).get("marketing")
-    if revision_note:
-        brief = f"{brief}\n\n[CEO 보완 요청 사유] {revision_note}"
-    return brief, fetch_products()
+    return original_ceo_text(state), fetch_products()
 
 
 async def marketing_director_brief_node(state: OSState, config: RunnableConfig) -> dict:

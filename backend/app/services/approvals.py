@@ -10,9 +10,30 @@ from app.tools.telegram_bot import acknowledge_decision, send_approval_request
 GRAPH_BASED_TARGET_TYPES = {"task_plan", "marketing_post", "dev_proposal"}
 
 
+async def claim_approval(supabase, approval_id: str) -> dict | None:
+    """이 approval의 처리를 "선점"한다 - status를 pending -> processing으로 원자적으로
+    전환하고, 실제로 이 호출이 전환에 성공했을 때만 그 row를 반환한다.
+
+    Why: 마케팅 보완 같은 처리는 LLM+이미지 생성 파이프라인 전체를 다시 돌아서 몇 분씩
+    걸리는데, 그동안 텔레그램 버튼이 살아있거나 웹훅이 중복 전달되면 같은 결정이 두 번
+    처리될 수 있었다(실측 확인 - 반려 이후에도 겹쳐 실행되던 중복 처리가 새 승인을 계속
+    만들어냈음). status 컬럼을 원자적 락으로 써서 두 번째 호출은 조용히 무시하게 만든다.
+    """
+    result = (
+        supabase.table("approvals")
+        .update({"status": "processing"})
+        .eq("id", approval_id)
+        .eq("status", "pending")
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
 async def resume_approval(graph, supabase, approval_id: str, decision: str, comment: str = "") -> None:
-    """승인/반려/보완 처리 - LangGraph를 resume하고, 결과로 새 interrupt가 생기면
-    (보완 후 해당 Worker가 재실행되어 다시 멈춘 경우 등) 새 승인 카드를 만들어 보낸다.
+    """승인/반려/보완의 실제 처리 - claim_approval로 선점에 성공한 뒤에만 호출해야 한다.
+    LangGraph를 resume하고, 결과로 새 interrupt가 생기면(보완 후 해당 Worker가 재실행되어
+    다시 멈춘 경우 등) 새 승인 카드를 만들어 보낸다. 오래 걸릴 수 있으므로 호출부가 백그라운드
+    태스크로 실행해야 한다(응답을 기다리게 하면 안 됨).
     """
     approval_row = (
         supabase.table("approvals")

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import {
   decideApproval,
+  deleteDirective,
   deleteDirectiveMedia,
   getDirectiveDetail,
   listDirectives,
+  pauseDirective,
+  resumeDirective,
+  terminateDirective,
   updateDirective,
   updateDirectiveMedia,
   uploadDirectiveMedia,
@@ -15,19 +19,34 @@ import {
 
 const STATUS_STYLE: Record<string, string> = {
   pending: "bg-slate-700 text-slate-200",
+  pending_approval: "bg-slate-700 text-slate-200",
+  processing: "bg-blue-900 text-blue-300",
+  in_progress: "bg-blue-900 text-blue-300",
   approved: "bg-green-900 text-green-300",
   rejected: "bg-red-900 text-red-300",
   revision: "bg-amber-900 text-amber-300",
+  cancelled: "bg-slate-800 text-slate-400",
+  paused: "bg-amber-900 text-amber-300",
+  terminated: "bg-red-950 text-red-400",
   completed: "bg-slate-700 text-slate-200",
 };
 
 const STATUS_LABEL: Record<string, string> = {
   pending: "승인 대기",
+  pending_approval: "승인 대기",
+  processing: "처리중",
+  in_progress: "진행중",
   approved: "승인됨",
   rejected: "반려됨",
   revision: "보완 요청",
+  cancelled: "취소됨",
+  paused: "정지됨",
+  terminated: "강제 종료됨",
   completed: "완료",
 };
+
+// 이 상태일 때는 detail 화면이 자동으로 폴링해서 실시간으로 갱신한다.
+const LIVE_STATUSES = new Set(["in_progress", "pending_approval"]);
 
 const DEPT_LABEL: Record<string, string> = {
   bizdev: "사업개발",
@@ -107,6 +126,73 @@ export default function WorkOrdersView() {
       .then(setDetail)
       .catch((e) => setDetailError((e as Error).message))
       .finally(() => setDetailLoading(false));
+  };
+
+  // 처리 중/승인 대기 상태인 동안엔 자동으로 몇 초마다 다시 불러와 실시간처럼 보이게 한다 -
+  // 새로고침을 계속 누르지 않아도 진행 상황이 화면에 반영된다. 끝나면(완료/반려/정지 등) 멈춘다.
+  useEffect(() => {
+    if (!selected || !detail || !LIVE_STATUSES.has(detail.status)) return;
+    const timer = setInterval(() => {
+      getDirectiveDetail(selected).then(setDetail).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [selected, detail?.status]);
+
+  const [controlBusy, setControlBusy] = useState(false);
+
+  const handlePause = async () => {
+    if (!selected) return;
+    setControlBusy(true);
+    try {
+      await pauseDirective(selected);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!selected) return;
+    setControlBusy(true);
+    try {
+      await resumeDirective(selected);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  const handleTerminate = async () => {
+    if (!selected) return;
+    if (!window.confirm("정말 강제 종료하시겠습니까? 진행 중인 작업이 취소되고 되돌릴 수 없습니다.")) return;
+    setControlBusy(true);
+    try {
+      await terminateDirective(selected);
+      loadDetail(selected);
+    } catch (e) {
+      setDetailError((e as Error).message);
+    } finally {
+      setControlBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selected) return;
+    if (!window.confirm("정말 이 업무 지시를 완전히 삭제하시겠습니까? 되돌릴 수 없습니다.")) return;
+    setControlBusy(true);
+    try {
+      await deleteDirective(selected);
+      setSelected(null);
+      setDetail(null);
+      load();
+    } catch (e) {
+      setDetailError((e as Error).message);
+      setControlBusy(false);
+    }
   };
 
   const handleDecide = async (approvalId: string, decision: "approved" | "rejected" | "revision", comment?: string) => {
@@ -208,7 +294,46 @@ export default function WorkOrdersView() {
           >
             새로고침
           </button>
+          {detail && <StatusPill status={detail.status} />}
           <span className="text-xs text-slate-500">{selected}</span>
+          <div className="ml-auto flex gap-2">
+            {detail?.status === "paused" ? (
+              <button
+                onClick={handleResume}
+                disabled={controlBusy}
+                className="rounded-md border border-amber-800 px-3 py-1.5 text-sm text-amber-300 hover:bg-amber-950 disabled:opacity-50"
+              >
+                재개
+              </button>
+            ) : (
+              detail &&
+              LIVE_STATUSES.has(detail.status) && (
+                <button
+                  onClick={handlePause}
+                  disabled={controlBusy}
+                  className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  정지
+                </button>
+              )
+            )}
+            {detail && detail.status !== "terminated" && (
+              <button
+                onClick={handleTerminate}
+                disabled={controlBusy}
+                className="rounded-md border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950 disabled:opacity-50"
+              >
+                강제 종료
+              </button>
+            )}
+            <button
+              onClick={handleDelete}
+              disabled={controlBusy}
+              className="rounded-md border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950 disabled:opacity-50"
+            >
+              삭제
+            </button>
+          </div>
         </div>
 
         {detailError && <div className="text-sm text-red-400">{detailError}</div>}

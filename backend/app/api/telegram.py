@@ -1,15 +1,37 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 from telegram import BotCommand
 
 from app.config import settings
 from app.db.supabase_client import get_supabase
-from app.services.approvals import GRAPH_BASED_TARGET_TYPES, decide_finance_entry, resume_approval
+from app.graphs import task_registry
+from app.services.approvals import GRAPH_BASED_TARGET_TYPES, claim_approval, decide_finance_entry, resume_approval
 from app.services.directive_intake import UploadedMediaRef, create_directive_and_run
-from app.tools.telegram_bot import get_bot, prompt_for_comment, send_approval_request
+from app.tools.telegram_bot import get_bot, mark_processing, prompt_for_comment, send_approval_request
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
 DIRECTIVE_COMMAND = "/지시"
+
+# 텔레그램은 응답이 늦으면(처리가 몇 분씩 걸리는 마케팅 재생성 등) 같은 update를 재전송한다 -
+# update_id는 재전송돼도 동일하므로 최근 처리한 것만 기억해두면 중복 처리를 막을 수 있다.
+# approval 쪽은 claim_approval(원자적 락)로 이미 막히지만, "/지시"로 새 지시를 만드는 경로는
+# 매번 새 row를 만들어서 같은 보호가 없어 이 범용 가드로 함께 막는다. 프로세스 재시작하면
+# 비워지는데(Railway 단일 프로세스, 인메모리) 재전송은 보통 초~분 단위라 문제 없음.
+_seen_update_ids: set[int] = set()
+_SEEN_UPDATE_IDS_MAX = 500
+
+
+def _already_processed(update_id: int | None) -> bool:
+    if update_id is None:
+        return False
+    if update_id in _seen_update_ids:
+        return True
+    _seen_update_ids.add(update_id)
+    if len(_seen_update_ids) > _SEEN_UPDATE_IDS_MAX:
+        _seen_update_ids.pop()
+    return False
 
 
 def _is_from_ceo(update: dict) -> bool:
@@ -24,10 +46,55 @@ def _is_from_ceo(update: dict) -> bool:
 async def _handle_graph_resume(
     request: Request, supabase, approval_id: str, decision: str, comment: str = ""
 ) -> None:
-    await resume_approval(request.app.state.graph, supabase, approval_id, decision, comment)
+    """모든 텔레그램 진입점(승인/반려 버튼, 보완 답장, 보완 폴백)이 이 함수를 거친다.
+
+    claim_approval로 먼저 선점(원자적)한 뒤에만 실제 처리를 시작한다 - 이미 처리
+    중이거나 끝난 approval이면 조용히 무시(중복 처리 방지, 실측으로 확인된 버그의 핵심 수정).
+    실제 처리(그래프 재개, 몇 분씩 걸릴 수 있음)는 백그라운드로 돌려서 웹훅 응답을 즉시
+    돌려준다 - 텔레그램이 응답 지연으로 같은 업데이트를 재전송하는 것도 함께 방지된다.
+    """
+    thread_row = (
+        supabase.table("approvals").select("thread_id").eq("id", approval_id).single().execute()
+    )
+    thread_id_hint = thread_row.data.get("thread_id") if thread_row.data else None
+    if thread_id_hint:
+        directive_row = (
+            supabase.table("directives")
+            .select("paused_at, terminated_at")
+            .eq("thread_id", thread_id_hint)
+            .execute()
+        )
+        if directive_row.data and (directive_row.data[0].get("paused_at") or directive_row.data[0].get("terminated_at")):
+            return  # 정지/강제종료된 지시 - 텔레그램 버튼으로도 처리 못 하게 조용히 무시
+
+    claimed = await claim_approval(supabase, approval_id)
+    if not claimed:
+        return
+    message_id = claimed.get("telegram_msg_id")
+    target_type = claimed.get("target_type")
+    payload = claimed.get("payload")
+    if message_id and target_type and payload:
+        try:
+            await mark_processing(int(message_id), target_type, payload)
+        except Exception:
+            pass  # 카드 갱신 실패는 무시 - 실제 처리는 계속 진행
+
+    async def _run() -> None:
+        try:
+            await resume_approval(request.app.state.graph, supabase, approval_id, decision, comment)
+        except Exception:
+            pass  # 백그라운드 태스크 - 예외를 삼켜서 미처리 태스크 경고로 그치게 함(TODO: 로깅)
+
+    task = asyncio.create_task(_run())
+    thread_id = claimed.get("thread_id")
+    if thread_id:
+        task_registry.register(thread_id, task)
 
 
 async def _handle_finance_entry(supabase, approval_id: str, decision: str) -> None:
+    claimed = await claim_approval(supabase, approval_id)
+    if not claimed:
+        return
     await decide_finance_entry(supabase, approval_id, decision)
 
 
@@ -144,6 +211,9 @@ async def telegram_webhook(request: Request) -> dict:
 
     update = await request.json()
     supabase = get_supabase()
+
+    if _already_processed(update.get("update_id")):
+        return {"ok": True}  # 텔레그램의 재전송(응답 지연 등) - 이미 처리한 update, 조용히 무시
 
     if not _is_from_ceo(update):
         return {"ok": True}  # CEO 본인 채팅방이 아니면 조용히 무시 (에러 응답은 정보를 흘림)

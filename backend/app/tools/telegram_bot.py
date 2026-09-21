@@ -101,7 +101,7 @@ _CARD_BUTTONS = {
     "dev_proposal": [("✅ 승인", "approved"), ("✏️ 보완", "revision"), ("❌ 반려", "rejected")],
 }
 
-_DECISION_LABEL = {"approved": "✅ 승인 처리됨", "rejected": "❌ 반려 처리됨", "revision": "✏️ 보완 요청 처리중..."}
+_DECISION_LABEL = {"approved": "✅ 승인 처리됨", "rejected": "❌ 반려 처리됨", "revision": "✏️ 보완 반영 완료", "cancelled": "🛑 CEO가 강제 종료함"}
 
 
 async def send_approval_request(approval_id: str, target_type: str, payload: dict) -> int:
@@ -130,6 +130,20 @@ async def prompt_for_comment(message_id: int, target_type: str, payload: dict) -
         chat_id=settings.telegram_ceo_chat_id,
         message_id=message_id,
         text=format_card(payload, "✏️ 이 메시지에 답장(reply)으로 보완 사유를 입력해주세요"),
+        reply_markup=InlineKeyboardMarkup([]),
+    )
+
+
+async def mark_processing(message_id: int, target_type: str, payload: dict) -> None:
+    """결정 버튼을 누른 "직후"(실제 처리 시작 전) 즉시 카드를 "처리 중"으로 바꾸고 버튼을
+    없앤다 - 처리(재생성 등)가 몇 분씩 걸리는 동안 버튼이 살아있으면 CEO가 다시 눌러서 같은
+    결정이 중복 처리되는 문제가 실측으로 확인됐다. acknowledge_decision은 처리가 끝난 뒤
+    최종 결과로 다시 한 번 갱신한다."""
+    format_card = _CARD_FORMATTERS[target_type]
+    await get_bot().edit_message_text(
+        chat_id=settings.telegram_ceo_chat_id,
+        message_id=message_id,
+        text=format_card(payload, "⏳ 처리 중입니다... 잠시만 기다려주세요"),
         reply_markup=InlineKeyboardMarkup([]),
     )
 
