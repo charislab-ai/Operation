@@ -28,6 +28,7 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled: "bg-slate-800 text-slate-400",
   paused: "bg-amber-900 text-amber-300",
   terminated: "bg-red-950 text-red-400",
+  failed: "bg-red-900 text-red-300",
   completed: "bg-slate-700 text-slate-200",
 };
 
@@ -42,6 +43,7 @@ const STATUS_LABEL: Record<string, string> = {
   cancelled: "취소됨",
   paused: "정지됨",
   terminated: "강제 종료됨",
+  failed: "실패",
   completed: "완료",
 };
 
@@ -91,7 +93,7 @@ export default function WorkOrdersView() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [decidingId, setDecidingId] = useState<string | null>(null);
-  const [revisionDraftId, setRevisionDraftId] = useState<string | null>(null);
+  const [commentDraft, setCommentDraft] = useState<{ id: string; decision: "revision" | "rejected" } | null>(null);
   const [revisionComment, setRevisionComment] = useState("");
 
   const [editingDirective, setEditingDirective] = useState(false);
@@ -196,17 +198,14 @@ export default function WorkOrdersView() {
   };
 
   const handleDecide = async (approvalId: string, decision: "approved" | "rejected" | "revision", comment?: string) => {
-    if (
-      (decision === "approved" || decision === "rejected") &&
-      !window.confirm(`정말 ${decision === "approved" ? "승인" : "반려"}하시겠습니까?`)
-    ) {
+    if (decision === "approved" && !window.confirm("정말 승인하시겠습니까?")) {
       return;
     }
     setDecidingId(approvalId);
     setDetailError(null);
     try {
       await decideApproval(approvalId, decision, comment);
-      setRevisionDraftId(null);
+      setCommentDraft(null);
       setRevisionComment("");
       if (selected) loadDetail(selected);
     } catch (e) {
@@ -337,6 +336,16 @@ export default function WorkOrdersView() {
         </div>
 
         {detailError && <div className="text-sm text-red-400">{detailError}</div>}
+
+        {detail?.last_error && detail.status === "failed" && (
+          <div className="rounded-lg border border-red-900 bg-red-950/40 p-4">
+            <div className="mb-1 text-sm font-medium text-red-300">⚠️ 처리 중 오류가 발생해 중단됐습니다</div>
+            <div className="whitespace-pre-wrap text-xs text-red-200/90">{detail.last_error}</div>
+            <div className="mt-2 text-xs text-slate-400">
+              원인을 해결한 뒤 아래 결재 카드에서 다시 결정하거나, 새로 지시해주세요.
+            </div>
+          </div>
+        )}
 
         {detailLoading || !detail ? (
           <div className="text-slate-400">불러오는 중...</div>
@@ -648,25 +657,28 @@ export default function WorkOrdersView() {
                         <td className="py-2">
                           {a.status !== "pending" ? (
                             "-"
-                          ) : revisionDraftId === a.id ? (
+                          ) : commentDraft?.id === a.id ? (
                             <div className="flex flex-col gap-1">
                               <textarea
                                 value={revisionComment}
                                 onChange={(e) => setRevisionComment(e.target.value)}
                                 rows={2}
-                                placeholder="보완 사유"
-                                className="w-40 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                                autoFocus
+                                placeholder={commentDraft.decision === "revision" ? "보완 사유 / 추가 지시" : "반려 사유"}
+                                className="w-44 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
                               />
                               <div className="flex gap-1">
                                 <button
-                                  onClick={() => handleDecide(a.id, "revision", revisionComment)}
+                                  onClick={() => handleDecide(a.id, commentDraft.decision, revisionComment)}
                                   disabled={decidingId === a.id || !revisionComment.trim()}
-                                  className="rounded-md bg-brand-purple px-2 py-1 text-xs text-white disabled:opacity-50"
+                                  className={`rounded-md px-2 py-1 text-xs text-white disabled:opacity-50 ${
+                                    commentDraft.decision === "revision" ? "bg-brand-purple" : "bg-red-800"
+                                  }`}
                                 >
-                                  제출
+                                  {decidingId === a.id ? "제출중..." : commentDraft.decision === "revision" ? "보완 요청" : "반려"}
                                 </button>
                                 <button
-                                  onClick={() => setRevisionDraftId(null)}
+                                  onClick={() => setCommentDraft(null)}
                                   className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
                                 >
                                   취소
@@ -684,7 +696,7 @@ export default function WorkOrdersView() {
                               </button>
                               <button
                                 onClick={() => {
-                                  setRevisionDraftId(a.id);
+                                  setCommentDraft({ id: a.id, decision: "revision" });
                                   setRevisionComment("");
                                 }}
                                 disabled={decidingId === a.id}
@@ -693,7 +705,10 @@ export default function WorkOrdersView() {
                                 보완
                               </button>
                               <button
-                                onClick={() => handleDecide(a.id, "rejected")}
+                                onClick={() => {
+                                  setCommentDraft({ id: a.id, decision: "rejected" });
+                                  setRevisionComment("");
+                                }}
                                 disabled={decidingId === a.id}
                                 className="rounded-md border border-red-900 px-2 py-1 text-xs text-red-400 hover:bg-red-950"
                               >

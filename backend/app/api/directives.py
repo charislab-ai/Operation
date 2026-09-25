@@ -35,6 +35,10 @@ async def _compute_status(graph, thread_id: str, approvals: list[dict], directiv
         return "paused"
 
     statuses = {a["status"] for a in approvals}
+    # 실패 기록이 있는데 그 뒤로 다시 처리 중/대기 중인 게 없다면 "실패"로 보여준다 -
+    # 예전엔 워커가 죽어도 "진행중"으로만 남아 CEO가 원인을 알 수 없었다.
+    if directive_row.get("failed_at") and not ({"processing", "pending"} & statuses):
+        return "failed"
     for priority in _STATUS_PRIORITY:
         if priority in statuses:
             return "in_progress" if priority == "processing" else "pending_approval"
@@ -112,6 +116,7 @@ class DirectiveDetailOut(BaseModel):
     ceo_directive: str
     created_at: str
     status: str
+    last_error: str | None = None
     active_departments: list[str]
     worker_briefs: dict[str, str]
     decisions: dict[str, str]
@@ -144,7 +149,7 @@ async def get_directive(thread_id: str, request: Request) -> dict:
     supabase = get_supabase()
     directive_row = (
         supabase.table("directives")
-        .select("paused_at, terminated_at")
+        .select("paused_at, terminated_at, failed_at, last_error")
         .eq("thread_id", thread_id)
         .limit(1)
         .execute()
@@ -235,7 +240,12 @@ async def resume_directive(thread_id: str, request: Request) -> dict:
     멈춰있을 수 있는 경우(대기 중인 approval이 하나도 없을 때만)에는 이어서 진행시킨다 -
     이미 대기 중인 approval이 있으면 그걸로 충분하니 그래프를 다시 건드리지 않는다."""
     supabase = get_supabase()
-    result = supabase.table("directives").update({"paused_at": None}).eq("thread_id", thread_id).execute()
+    result = (
+        supabase.table("directives")
+        .update({"paused_at": None, "failed_at": None, "last_error": None})
+        .eq("thread_id", thread_id)
+        .execute()
+    )
     if not result.data:
         raise HTTPException(status_code=404, detail="directive not found")
 
@@ -336,7 +346,7 @@ async def list_directives(request: Request, limit: int = 100) -> list[dict]:
     supabase = get_supabase()
     directives = (
         supabase.table("directives")
-        .select("thread_id, ceo_directive, created_at, paused_at, terminated_at")
+        .select("thread_id, ceo_directive, created_at, paused_at, terminated_at, failed_at, last_error")
         .order("created_at", desc=True)
         .limit(limit)
         .execute()
@@ -372,7 +382,7 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
     supabase = get_supabase()
     directive_row = (
         supabase.table("directives")
-        .select("thread_id, ceo_directive, created_at, paused_at, terminated_at")
+        .select("thread_id, ceo_directive, created_at, paused_at, terminated_at, failed_at, last_error")
         .eq("thread_id", thread_id)
         .limit(1)
         .execute()
@@ -468,6 +478,7 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         "ceo_directive": directive["ceo_directive"],
         "created_at": directive["created_at"],
         "status": status,
+        "last_error": directive.get("last_error"),
         "active_departments": state_values.get("active_departments", []),
         "worker_briefs": state_values.get("worker_briefs", {}),
         "decisions": state_values.get("decisions", {}),

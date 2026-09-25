@@ -122,16 +122,29 @@ async def send_approval_request(approval_id: str, target_type: str, payload: dic
     return message.message_id
 
 
-async def prompt_for_comment(message_id: int, target_type: str, payload: dict) -> None:
-    """보완 버튼을 누르면 원본 카드 내용은 유지한 채 하단 문구를 안내로 바꾸고 버튼을 지운다 —
-    CEO가 이 메시지에 "답장(reply)"으로 보완 사유를 입력하면 app/api/telegram.py가 매칭한다."""
+_COMMENT_PROMPT = {
+    "revision": "✏️ 보완 사유를 알려주세요 — 이 메시지에 답장(reply)하거나, 그냥 다음 메시지로 보내셔도 됩니다",
+    "rejected": "❌ 반려 사유를 알려주세요 — 이 메시지에 답장(reply)하거나 그냥 다음 메시지로 보내세요 (사유 없이 반려하려면 '없음')",
+}
+
+
+async def prompt_for_comment(message_id: int, target_type: str, payload: dict, decision: str = "revision") -> None:
+    """보완/반려 버튼을 누르면 원본 카드 내용은 유지한 채 하단 문구를 사유 입력 안내로 바꾸고
+    버튼을 지운다 — CEO가 답장(또는 그냥 다음 메시지)으로 사유를 보내면 app/api/telegram.py가
+    매칭한다. 반려도 사유를 받을 수 있어야 한다는 CEO 요청으로 decision별 안내 문구를 분리했다."""
     format_card = _CARD_FORMATTERS[target_type]
     await get_bot().edit_message_text(
         chat_id=settings.telegram_ceo_chat_id,
         message_id=message_id,
-        text=format_card(payload, "✏️ 이 메시지에 답장(reply)으로 보완 사유를 입력해주세요"),
+        text=format_card(payload, _COMMENT_PROMPT.get(decision, _COMMENT_PROMPT["revision"])),
         reply_markup=InlineKeyboardMarkup([]),
     )
+
+
+async def notify_ceo(text: str) -> None:
+    """CEO에게 짧은 안내/경고 메시지를 보낸다 - 조용히 무시되던 상황들(이미 처리된 카드에
+    답장, 매칭 실패 등)에 반드시 피드백을 주기 위함."""
+    await get_bot().send_message(chat_id=settings.telegram_ceo_chat_id, text=text)
 
 
 async def mark_processing(message_id: int, target_type: str, payload: dict) -> None:

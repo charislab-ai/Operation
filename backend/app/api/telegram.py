@@ -8,7 +8,8 @@ from app.db.supabase_client import get_supabase
 from app.graphs import task_registry
 from app.services.approvals import GRAPH_BASED_TARGET_TYPES, claim_approval, decide_finance_entry, resume_approval
 from app.services.directive_intake import UploadedMediaRef, create_directive_and_run
-from app.tools.telegram_bot import get_bot, mark_processing, prompt_for_comment, send_approval_request
+from app.services.failures import record_graph_failure
+from app.tools.telegram_bot import get_bot, mark_processing, notify_ceo, prompt_for_comment, send_approval_request
 
 router = APIRouter(prefix="/telegram", tags=["telegram"])
 
@@ -64,11 +65,16 @@ async def _handle_graph_resume(
             .eq("thread_id", thread_id_hint)
             .execute()
         )
-        if directive_row.data and (directive_row.data[0].get("paused_at") or directive_row.data[0].get("terminated_at")):
-            return  # 정지/강제종료된 지시 - 텔레그램 버튼으로도 처리 못 하게 조용히 무시
+        if directive_row.data and directive_row.data[0].get("terminated_at"):
+            await notify_ceo("⚠️ 강제 종료된 업무 지시라 처리할 수 없습니다.")
+            return
+        if directive_row.data and directive_row.data[0].get("paused_at"):
+            await notify_ceo("⚠️ 정지된 업무 지시입니다. 홈페이지에서 '재개'를 먼저 눌러주세요.")
+            return
 
     claimed = await claim_approval(supabase, approval_id)
     if not claimed:
+        await notify_ceo("⚠️ 이미 처리 중이거나 처리가 끝난 결재입니다. (중복 요청은 무시됩니다)")
         return
     message_id = claimed.get("telegram_msg_id")
     target_type = claimed.get("target_type")
@@ -82,8 +88,10 @@ async def _handle_graph_resume(
     async def _run() -> None:
         try:
             await resume_approval(request.app.state.graph, supabase, approval_id, decision, comment)
-        except Exception:
-            pass  # 백그라운드 태스크 - 예외를 삼켜서 미처리 태스크 경고로 그치게 함(TODO: 로깅)
+        except Exception as exc:
+            # 백그라운드라 예외가 어디에도 안 보이므로 반드시 기록/알림한다(조용히 삼키면
+            # 승인이 processing으로 영원히 멈추고 CEO는 이유를 알 수 없다).
+            await record_graph_failure(claimed.get("thread_id") or "", exc, approval_id=approval_id)
 
     task = asyncio.create_task(_run())
     thread_id = claimed.get("thread_id")
@@ -98,42 +106,69 @@ async def _handle_finance_entry(supabase, approval_id: str, decision: str) -> No
     await decide_finance_entry(supabase, approval_id, decision)
 
 
-async def _handle_revision_button(supabase, approval_id: str) -> None:
-    """보완 버튼: 아직 재개하지 않고 CEO의 사유 답장을 기다린다(카드를 답장 안내로 바꿔둠)."""
+async def _handle_comment_request_button(supabase, approval_id: str, decision: str) -> None:
+    """보완/반려 버튼: 아직 재개하지 않고 CEO의 사유를 먼저 받는다(카드를 사유 입력 안내로 바꿈).
+
+    반려도 사유를 남길 수 있어야 한다는 CEO 요청으로 revision 전용이던 흐름을 공용화했다.
+    이미 처리된 카드에 눌렀을 땐 조용히 무시하지 않고 그 사실을 알려준다(예전엔 아무 반응이
+    없어서 CEO가 사유를 입력해도 왜 안 먹는지 알 수 없었음)."""
     row = (
         supabase.table("approvals")
-        .select("telegram_msg_id, payload, target_type")
+        .select("telegram_msg_id, payload, target_type, status")
         .eq("id", approval_id)
         .single()
         .execute()
     )
-    supabase.table("approvals").update({"awaiting_comment": True}).eq("id", approval_id).execute()
+    if not row.data:
+        await notify_ceo("⚠️ 해당 승인 요청을 찾을 수 없습니다.")
+        return
+    if row.data["status"] != "pending":
+        await notify_ceo(
+            f"⚠️ 이미 처리된 카드입니다(현재 상태: {row.data['status']}). "
+            "새 결정이 필요하면 홈페이지 업무지시 화면에서 최신 카드를 확인해주세요."
+        )
+        return
+
+    supabase.table("approvals").update({"awaiting_comment": True, "awaiting_decision": decision}).eq(
+        "id", approval_id
+    ).execute()
     message_id = row.data.get("telegram_msg_id")
     if message_id:
-        await prompt_for_comment(int(message_id), row.data["target_type"], row.data["payload"])
+        await prompt_for_comment(int(message_id), row.data["target_type"], row.data["payload"], decision)
 
 
 async def _handle_comment_reply_fallback(request: Request, supabase, comment: str) -> None:
-    """CEO가 텔레그램의 "답장(reply)" 제스처를 안 쓰고 그냥 새 메시지로 보완 사유를 보낸 경우를
-    위한 안전장치(실측: 답장 없이 보내면 무시되어 보완이 멈춰버리는 문제 확인됨). 지금 보완 사유를
-    기다리는 중인(awaiting_comment=True, pending) approval이 정확히 1건일 때만 그 건으로 매칭한다 -
-    여러 건이 동시에 대기 중이면(Goal형 병렬 실행) 어느 카드인지 알 수 없으므로 안전하게 무시한다."""
+    """CEO가 "답장(reply)" 제스처 없이 그냥 새 메시지로 사유를 보낸 경우의 처리.
+
+    예전엔 사유를 기다리는 카드가 "정확히 1건"일 때만 처리하고 그 외엔 조용히 무시했는데,
+    2주 전 죽은 지시의 stale 행 하나 때문에 새 카드에 대한 사유가 통째로 무시되는 일이
+    실측으로 확인됐다(CEO: "보완 눌러도 적용이 안 되고 멈춤"). 이제는 가장 최근에 사유를
+    요청한 카드로 매칭하고, 매칭할 게 없으면 왜 안 되는지 반드시 알려준다."""
     rows = (
         supabase.table("approvals")
-        .select("id, target_type")
+        .select("id, target_type, awaiting_decision")
         .eq("awaiting_comment", True)
         .eq("status", "pending")
+        .order("created_at", desc=True)
+        .limit(1)
         .execute()
     ).data
-    if len(rows) != 1:
+    if not rows:
+        await notify_ceo(
+            "⚠️ 지금은 사유를 기다리는 결재 카드가 없어서 메시지를 처리하지 못했습니다.\n"
+            "새 업무를 지시하려면 '/지시 <내용>' 으로 보내주세요."
+        )
         return
 
     approval_id = rows[0]["id"]
     target_type = rows[0]["target_type"]
-    supabase.table("approvals").update({"awaiting_comment": False}).eq("id", approval_id).execute()
+    decision = rows[0].get("awaiting_decision") or "revision"
+    supabase.table("approvals").update({"awaiting_comment": False, "awaiting_decision": None}).eq(
+        "id", approval_id
+    ).execute()
 
     if target_type in GRAPH_BASED_TARGET_TYPES:
-        await _handle_graph_resume(request, supabase, approval_id, "revision", comment)
+        await _handle_graph_resume(request, supabase, approval_id, decision, comment)
 
 
 def _extract_directive_command_text(message: dict) -> str | None:
@@ -181,7 +216,7 @@ async def _handle_comment_reply(request: Request, supabase, reply_to_message_id:
     동시에 대기 중이어도(Goal형 병렬 실행) 정확히 그 카드만 처리된다."""
     row = (
         supabase.table("approvals")
-        .select("id, target_type")
+        .select("id, target_type, awaiting_decision")
         .eq("telegram_msg_id", str(reply_to_message_id))
         .eq("awaiting_comment", True)
         .eq("status", "pending")
@@ -189,14 +224,20 @@ async def _handle_comment_reply(request: Request, supabase, reply_to_message_id:
         .execute()
     )
     if not row.data:
-        return  # 보완 대기 중이 아닌 메시지에 대한 답장 - 무시
+        # 그 카드가 사유 대기 중이 아니어도, 다른 카드가 기다리는 중일 수 있으니 폴백으로 넘긴다
+        # (예전엔 여기서 조용히 끝나서 CEO 입력이 통째로 사라졌음).
+        await _handle_comment_reply_fallback(request, supabase, comment)
+        return
 
     approval_id = row.data[0]["id"]
     target_type = row.data[0]["target_type"]
-    supabase.table("approvals").update({"awaiting_comment": False}).eq("id", approval_id).execute()
+    decision = row.data[0].get("awaiting_decision") or "revision"
+    supabase.table("approvals").update({"awaiting_comment": False, "awaiting_decision": None}).eq(
+        "id", approval_id
+    ).execute()
 
     if target_type in GRAPH_BASED_TARGET_TYPES:
-        await _handle_graph_resume(request, supabase, approval_id, "revision", comment)
+        await _handle_graph_resume(request, supabase, approval_id, decision, comment)
     # finance_entry는 보완 버튼 자체가 없어(2분기) 이 경로를 타지 않는다.
 
 
@@ -232,8 +273,10 @@ async def telegram_webhook(request: Request) -> dict:
             return {"ok": True}
         target_type, approval_id, decision = parts
 
-        if decision == "revision":
-            await _handle_revision_button(supabase, approval_id)
+        # 보완/반려는 사유를 먼저 받고 처리한다(승인만 즉시 처리) - 반려 사유도 남길 수 있어야
+        # 다음 생성에 반영하거나 나중에 왜 반려했는지 추적할 수 있다는 CEO 요청 반영.
+        if decision in ("revision", "rejected") and target_type in GRAPH_BASED_TARGET_TYPES:
+            await _handle_comment_request_button(supabase, approval_id, decision)
         elif target_type in GRAPH_BASED_TARGET_TYPES:
             await _handle_graph_resume(request, supabase, approval_id, decision)
         elif target_type == "finance_entry":

@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 
 from app.db.supabase_client import get_supabase
+from app.services.failures import record_graph_failure
 from app.tools.telegram_bot import send_approval_request
 
 DIRECTIVE_MEDIA_BUCKET = "directive-media"
@@ -74,7 +75,13 @@ async def create_directive_and_run(graph, text: str, media: list[UploadedMediaRe
     uploaded = [upload_one_media(supabase, thread_id, m) for m in media]
     augmented_text = _augment_text(text, uploaded)
 
-    result = await graph.ainvoke({"ceo_directive": augmented_text, "messages": []}, config)
+    try:
+        result = await graph.ainvoke({"ceo_directive": augmented_text, "messages": []}, config)
+    except Exception as exc:
+        # 실패를 조용히 삼키면 CEO 화면엔 "진행중"만 영원히 남는다 - 기록/알림 후 그대로 올려보낸다
+        # (웹 제출이면 HTTP 응답으로도 에러가 보여야 하므로 재전파).
+        await record_graph_failure(thread_id, exc)
+        raise
 
     interrupts = result.get("__interrupt__")
     if not interrupts:

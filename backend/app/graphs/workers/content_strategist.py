@@ -7,7 +7,7 @@ from app.graphs.workers._marketing_shared import original_ceo_text
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
-from app.workers.rag_worker import rag_search
+from app.workers.rag_worker import rag_search_safe
 
 llm = get_llm()
 
@@ -60,7 +60,7 @@ async def content_strategist_node(state: OSState, config: RunnableConfig) -> dic
     run_id = start_run("ContentStrategist", {"slide_topics": brief["slide_topics"]}, thread_id=thread_id)
 
     query = f"{brief['product']} {' '.join(brief['slide_topics'])}"
-    related_docs = await rag_search(query, limit=3)
+    related_docs = await rag_search_safe(query, limit=3)
     doc_context = (
         "\n\n".join(f"[제품 특징 문서] {d['content']}" for d in related_docs)
         if related_docs

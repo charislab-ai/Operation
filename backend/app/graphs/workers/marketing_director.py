@@ -19,7 +19,7 @@ from app.tools.ai.image.storage import upload_marketing_image
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
-from app.workers.rag_worker import rag_search
+from app.workers.rag_worker import rag_search_safe
 
 llm = get_llm()
 
@@ -74,7 +74,7 @@ async def marketing_director_brief_node(state: OSState, config: RunnableConfig) 
 
     brief, products_by_name = _gather_context(state)
 
-    related_docs = await rag_search(brief, limit=3)
+    related_docs = await rag_search_safe(brief, limit=3)
     doc_context = "\n\n".join(f"[제품 특징 문서] {d['content']}" for d in related_docs)
     product_descriptions = "\n".join(
         f"[{name} 앱 설명] {row['description']}" for name, row in products_by_name.items() if row.get("description")

@@ -79,6 +79,24 @@ def _recover_from_malformed_tool_call(raw: Any, schema: type[SchemaT]) -> dict |
     return None
 
 
+def _content_to_text(content) -> str:
+    """AIMessage.content를 사람이 읽는 텍스트로 변환한다.
+
+    Claude가 thinking 블록을 포함해 응답하면 content가 문자열이 아니라 블록 리스트로 와서,
+    예전의 str(content)는 "[{'signature': 'EoQDCpAB...'}]" 같은 쓰레기 문자열을 반환했다
+    (실측 확인). 텍스트 블록만 뽑아서 이어붙인다."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = [
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        return "\n".join(p for p in parts if p).strip() or str(content)
+    return str(content)
+
+
 class ClaudeLLMProvider:
     """LLMProvider 구현체 — Claude(Anthropic)를 기본 추론 엔진으로 사용한다."""
 
@@ -100,7 +118,7 @@ class ClaudeLLMProvider:
             output_tokens=usage.get("output_tokens"),
             total_tokens=usage.get("total_tokens"),
         )
-        return str(result.content)
+        return _content_to_text(result.content)
 
     async def complete_structured(
         self,

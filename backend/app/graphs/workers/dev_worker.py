@@ -5,7 +5,7 @@ from app.graphs.schemas import DevProposal
 from app.graphs.state import OSState
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
-from app.workers.rag_worker import rag_search
+from app.workers.rag_worker import rag_search_safe
 
 llm = get_llm()
 
@@ -22,7 +22,7 @@ async def dev_worker_node(state: OSState, config: RunnableConfig) -> dict:
     if revision_note:
         brief = f"{brief}\n\n[CEO 보완 요청 사유] {revision_note}"
 
-    related_docs = await rag_search(brief, limit=3)
+    related_docs = await rag_search_safe(brief, limit=3)
     context = (
         "\n\n".join(f"[참고 문서] {d['content']}" for d in related_docs)
         if related_docs

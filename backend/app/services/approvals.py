@@ -4,6 +4,7 @@
 
 from langgraph.types import Command
 
+from app.services.failures import record_graph_failure
 from app.tools.telegram_bot import acknowledge_decision, send_approval_request
 
 # 그래프를 resume해야 하는 target_type들 (finance_entry는 그래프 밖에서 직접 처리하므로 제외)
@@ -56,7 +57,13 @@ async def resume_approval(graph, supabase, approval_id: str, decision: str, comm
         if interrupt_id
         else {"decision": decision, "comment": comment}
     )
-    result = await graph.ainvoke(Command(resume=resume_value), config)
+    try:
+        result = await graph.ainvoke(Command(resume=resume_value), config)
+    except Exception as exc:
+        # 백그라운드에서 도는 경로라 예외가 어디에도 안 보이고 승인은 processing으로 멈춰버린다 -
+        # 기록/알림하고 승인을 pending으로 되돌려 CEO가 다시 결정할 수 있게 한다.
+        await record_graph_failure(thread_id, exc, approval_id=approval_id)
+        return
 
     supabase.table("approvals").update({"status": decision}).eq("id", approval_id).execute()
 

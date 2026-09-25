@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.db.supabase_client import get_supabase
 from app.graphs import task_registry
 from app.services.approvals import GRAPH_BASED_TARGET_TYPES, claim_approval, decide_finance_entry, resume_approval
+from app.services.failures import record_graph_failure
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -60,8 +61,8 @@ async def decide_approval(approval_id: str, payload: ApprovalDecision, request: 
             await resume_approval(
                 request.app.state.graph, supabase, approval_id, payload.decision, payload.comment or ""
             )
-        except Exception:
-            pass  # 백그라운드 태스크 - 예외를 삼켜서 미처리 태스크 경고로 그치게 함(TODO: 로깅)
+        except Exception as exc:
+            await record_graph_failure(thread_id or "", exc, approval_id=approval_id)
 
     task = asyncio.create_task(_run())
     if thread_id:

@@ -140,6 +140,7 @@ export interface DirectiveDetail {
   ceo_directive: string;
   created_at: string;
   status: string;
+  last_error: string | null;
   active_departments: string[];
   worker_briefs: Record<string, string>;
   decisions: Record<string, string>;
