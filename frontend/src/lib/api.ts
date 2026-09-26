@@ -667,6 +667,13 @@ export interface EmployeeOut {
   last_active_at: string | null;
   runs_7d: number;
   tokens_7d: number;
+  hire_readiness: {
+    checks: { label: string; current: number; raw: number; needed: number; unit: string; met: boolean }[];
+    ready: boolean;
+    why: string;
+    progress: number;
+  } | null;
+  hire_recommended_at: string | null;
 }
 
 export async function listEmployees(): Promise<EmployeeOut[]> {

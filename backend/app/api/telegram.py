@@ -99,6 +99,25 @@ async def _handle_graph_resume(
         task_registry.register(thread_id, task)
 
 
+async def _handle_hire_button(callback_query: dict, agent_key: str, decision: str) -> None:
+    """입사 추천 카드의 "입사시키기"/"나중에" 버튼 처리."""
+    from app.services.hiring import hire
+    from app.tools.telegram_bot import acknowledge_hire
+
+    rows = get_supabase().table("employees").select("*").eq("agent_key", agent_key).execute().data
+    if not rows:
+        return
+    employee = rows[0]
+    if decision == "accept":
+        employee = hire(agent_key) or employee
+    message_id = (callback_query.get("message") or {}).get("message_id")
+    if message_id:
+        try:
+            await acknowledge_hire(int(message_id), employee, decision == "accept")
+        except Exception:
+            pass
+
+
 async def _handle_finance_entry(supabase, approval_id: str, decision: str) -> None:
     claimed = await claim_approval(supabase, approval_id)
     if not claimed:
@@ -272,6 +291,12 @@ async def telegram_webhook(request: Request) -> dict:
         if len(parts) != 3:
             return {"ok": True}
         target_type, approval_id, decision = parts
+
+        # 입사 추천 카드(app/services/hiring.py) - 승인 흐름이 아니라 직원 상태 변경이라
+        # approvals 테이블을 거치지 않고 여기서 바로 처리한다.
+        if target_type == "hire":
+            await _handle_hire_button(callback_query, approval_id, decision)
+            return {"ok": True}
 
         # 보완/반려는 사유를 먼저 받고 처리한다(승인만 즉시 처리) - 반려 사유도 남길 수 있어야
         # 다음 생성에 반영하거나 나중에 왜 반려했는지 추적할 수 있다는 CEO 요청 반영.

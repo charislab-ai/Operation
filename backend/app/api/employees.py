@@ -32,6 +32,10 @@ class EmployeeOut(BaseModel):
     last_active_at: str | None
     runs_7d: int  # 최근 7일 처리 건수
     tokens_7d: int  # 최근 7일 사용 토큰
+    # 입사 예정 직원에게만 붙는다 - 입사 조건이 얼마나 채워졌는지(화면에 진행률로 표시).
+    # CEO가 기준을 외우고 있을 필요 없게, 조건이 다 차면 시스템이 텔레그램으로 먼저 알린다.
+    hire_readiness: dict | None = None
+    hire_recommended_at: str | None = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -87,6 +91,8 @@ def list_employees() -> list[dict]:
             u.get("total_tokens") or 0
         )
 
+    from app.services.hiring import readiness_of
+
     now = datetime.now(timezone.utc)
     out = []
     for e in employees:
@@ -99,6 +105,7 @@ def list_employees() -> list[dict]:
         out.append(
             {
                 **e,
+                "hire_readiness": readiness_of(e["agent_key"]) if e["status"] == "onboarding" else None,
                 "working": working,
                 "current_task": _summarize(latest) if latest else None,
                 "last_active_at": latest["started_at"] if latest else None,

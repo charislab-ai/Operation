@@ -123,6 +123,58 @@ function EmployeeCard({
 
       <div className="text-xs leading-relaxed text-slate-400">{employee.responsibilities}</div>
 
+      {/* 입사 예정 직원: 입사 조건이 얼마나 찼는지 항상 보여준다 - 기준을 CEO가 외우고 있을
+          필요 없이, 다 차면 텔레그램으로 먼저 추천 알림이 온다 */}
+      {employee.hire_readiness && (
+        <div
+          className={`rounded border p-2 ${
+            employee.hire_readiness.ready
+              ? "border-emerald-800 bg-emerald-950/30"
+              : "border-slate-800 bg-slate-950/60"
+          }`}
+        >
+          <div className="mb-1.5 flex items-center gap-1.5">
+            <span className="text-[11px] font-medium text-slate-300">입사 조건</span>
+            {employee.hire_readiness.ready ? (
+              <span className="rounded bg-emerald-900/60 px-1.5 text-[10px] text-emerald-300">
+                충족 — 입사 추천
+              </span>
+            ) : (
+              <span className="text-[10px] text-slate-500">
+                {employee.hire_readiness.checks.filter((c) => c.met).length}/
+                {employee.hire_readiness.checks.length} 충족
+              </span>
+            )}
+            {employee.hire_recommended_at && (
+              <span className="ml-auto text-[10px] text-amber-400">추천 알림 발송됨</span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            {employee.hire_readiness.checks.map((c) => (
+              <div key={c.label} className="flex items-center gap-2">
+                <span className={`text-[10px] ${c.met ? "text-emerald-400" : "text-slate-600"}`}>
+                  {c.met ? "✓" : "○"}
+                </span>
+                <span className="w-24 shrink-0 truncate text-[10px] text-slate-500">{c.label}</span>
+                <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800">
+                  <div
+                    className={`h-full rounded-full ${c.met ? "bg-emerald-600" : "bg-slate-600"}`}
+                    style={{ width: `${Math.min(100, Math.round((c.raw / c.needed) * 100))}%` }}
+                  />
+                </div>
+                <span className="w-16 shrink-0 text-right text-[10px] tabular-nums text-slate-500">
+                  {c.raw}/{c.needed}
+                  {c.unit}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-1.5 text-[10px] leading-relaxed text-slate-600">
+            {employee.hire_readiness.why}
+          </div>
+        </div>
+      )}
+
       <div className="mt-auto flex flex-col gap-1.5 pt-1">
         <div className="flex items-center gap-2 text-[11px] text-slate-500">
           <span className="w-16 shrink-0">최근 7일</span>
@@ -147,7 +199,7 @@ function EmployeeCard({
               disabled={busy}
               className="rounded border border-emerald-800 bg-emerald-900/30 px-2 py-1 text-[11px] text-emerald-300 hover:bg-emerald-900/60 disabled:opacity-50"
             >
-              입사시키기
+              {employee.hire_readiness && !employee.hire_readiness.ready ? "조건 전이지만 입사시키기" : "입사시키기"}
             </button>
           )}
           {employee.status === "active" && (
@@ -216,7 +268,8 @@ export default function EmployeesView() {
         <p className="mt-1 text-xs text-slate-500">
           이름을 바꾸면(✎) 그 이름으로 지시할 수 있습니다 — 지시문에 이름을 부르면 그 직원만 자기
           지시로 받아들이고, 결재 후 "보완"에서 이름을 부르면 그 직원만 다시 작업합니다(나머지
-          결과물과 사진은 그대로 재사용되어 추가 비용이 들지 않습니다).
+          결과물과 사진은 그대로 재사용되어 추가 비용이 들지 않습니다). 입사 예정 직원은 입사
+          조건이 다 차면 텔레그램으로 먼저 추천 알림이 가고, 거기서 바로 입사시킬 수 있습니다.
         </p>
       </div>
 

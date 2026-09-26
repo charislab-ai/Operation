@@ -173,3 +173,47 @@ async def acknowledge_decision(message_id: int, target_type: str, payload: dict,
         text=format_card(payload, footer),
         reply_markup=InlineKeyboardMarkup([]),
     )
+
+
+async def send_hire_recommendation(employee: dict, readiness: dict) -> int:
+    """입사 예정 직원의 입사 조건이 채워졌을 때 CEO에게 보내는 채용 추천 카드.
+
+    조건이 얼마나 쌓여야 하는지를 CEO가 계속 지켜볼 필요 없이, 시스템이 먼저 알리고 버튼
+    하나로 입사시킬 수 있게 한다(app/services/hiring.py). 콜백 형식은 기존 승인 카드와 같은
+    "{target_type}:{id}:{decision}" 3단 구조를 그대로 쓴다(app/api/telegram.py 파서 공용)."""
+    lines = [
+        f"🧑‍💼 입사 추천 — {employee['name']} ({employee['rank']} · {employee['title']})",
+        "",
+        "입사 조건이 모두 채워졌습니다:",
+    ]
+    for check in readiness.get("checks", []):
+        lines.append(f"  ✅ {check['label']} {check['raw']}{check['unit']} (기준 {check['needed']}{check['unit']})")
+    lines += ["", f"맡을 일: {employee['responsibilities']}", "", readiness.get("why", "")]
+
+    keyboard = InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton("🙌 입사시키기", callback_data=f"hire:{employee['agent_key']}:accept"),
+                InlineKeyboardButton("나중에", callback_data=f"hire:{employee['agent_key']}:later"),
+            ]
+        ]
+    )
+    message = await get_bot().send_message(
+        chat_id=settings.telegram_ceo_chat_id, text="\n".join(lines), reply_markup=keyboard
+    )
+    return message.message_id
+
+
+async def acknowledge_hire(message_id: int, employee: dict, accepted: bool) -> None:
+    """입사 추천 카드의 버튼을 누른 뒤 카드를 결과 문구로 바꾸고 버튼을 지운다."""
+    text = (
+        f"🙌 {employee['name']}({employee['title']}) 입사 완료 — 다음 지시부터 업무에 투입됩니다."
+        if accepted
+        else f"🕓 {employee['name']}({employee['title']}) 입사 보류 — 직원 화면에서 언제든 입사시킬 수 있습니다."
+    )
+    await get_bot().edit_message_text(
+        chat_id=settings.telegram_ceo_chat_id,
+        message_id=message_id,
+        text=text,
+        reply_markup=InlineKeyboardMarkup([]),
+    )
