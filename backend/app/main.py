@@ -13,14 +13,9 @@ from app.api import (
     audit,
     auth,
     directives,
-    documents,
-    finance,
     health,
     marketing,
-    office,
     products,
-    schedules,
-    tasks,
     telegram as telegram_api,
 )
 from app.auth.session import require_ceo
@@ -28,6 +23,7 @@ from app.config import settings
 from app.db.checkpointer import close_checkpointer, init_checkpointer
 from app.db.keepalive import run_keepalive_loop
 from app.graphs.build import build_graph
+from app.services.auto_marketing import run_auto_marketing_loop
 from app.tools.telegram_bot import get_bot
 
 
@@ -43,8 +39,11 @@ async def lifespan(app: FastAPI):
             pass
     # Supabase 무료 프로젝트가 장기 미접속으로 비활성화되지 않도록 주기적으로 핑(app/db/keepalive.py)
     keepalive_task = asyncio.create_task(run_keepalive_loop())
+    # 정기 자동 마케팅 발행(설정에서 켜야 실제로 동작 - app/services/auto_marketing.py)
+    auto_marketing_task = asyncio.create_task(run_auto_marketing_loop(app.state.graph))
     yield
     keepalive_task.cancel()
+    auto_marketing_task.cancel()
     await close_checkpointer()
 
 
@@ -67,15 +66,10 @@ protected = [Depends(require_ceo)]
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(telegram_api.router)  # 텔레그램이 직접 호출 - CEO 세션 대신 자체 webhook secret으로 보호
-app.include_router(tasks.router, dependencies=protected)
-app.include_router(schedules.router, dependencies=protected)
 app.include_router(directives.router, dependencies=protected)
 app.include_router(approvals.router, dependencies=protected)
-app.include_router(finance.router, dependencies=protected)
 app.include_router(marketing.router, dependencies=protected)
 app.include_router(products.router, dependencies=protected)
-app.include_router(documents.router, dependencies=protected)
-app.include_router(office.router, dependencies=protected)
 # agents.router는 REST(/status)와 WebSocket(/ws)이 섞여있어 라우터 전체에 일괄 dependencies를
 # 걸지 않고 각 엔드포인트에서 개별적으로 인증한다(app/api/agents.py 참고) - WS는 브라우저가
 # 커스텀 헤더를 못 보내 쿼리파라미터 토큰을 쓰는데, 라우터 레벨 Depends와 섞으면 동작이 불확실함

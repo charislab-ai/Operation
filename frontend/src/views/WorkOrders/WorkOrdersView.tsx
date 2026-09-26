@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from "react";
+import PostPreviewModal from "../../components/PostPreviewModal";
 import {
   decideApproval,
   deleteDirective,
   deleteDirectiveMedia,
   getDirectiveDetail,
+  getAutoSchedule,
   listDirectives,
   pauseDirective,
   resumeDirective,
   terminateDirective,
   updateDirective,
+  updateAutoSchedule,
   updateDirectiveMedia,
   uploadDirectiveMedia,
   type AgentRunRow,
   type ApprovalRow,
   type DirectiveDetail,
+  type AutoScheduleOut,
   type DirectiveListItem,
 } from "../../lib/api";
 
@@ -141,6 +145,20 @@ export default function WorkOrdersView() {
   }, [selected, detail?.status]);
 
   const [controlBusy, setControlBusy] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [autoSchedule, setAutoSchedule] = useState<AutoScheduleOut | null>(null);
+
+  useEffect(() => {
+    getAutoSchedule().then(setAutoSchedule).catch(() => undefined);
+  }, []);
+
+  const saveAutoSchedule = async (patch: Partial<AutoScheduleOut>) => {
+    try {
+      setAutoSchedule(await updateAutoSchedule(patch));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const handlePause = async () => {
     if (!selected) return;
@@ -334,6 +352,24 @@ export default function WorkOrdersView() {
             </button>
           </div>
         </div>
+
+        {previewOpen && detail?.outputs?.marketing_post && (
+          <PostPreviewModal
+            post={detail.outputs.marketing_post as Record<string, unknown>}
+            deciding={decidingId !== null}
+            onClose={() => setPreviewOpen(false)}
+            onDecide={(() => {
+              const pendingMarketing = detail.approvals.find(
+                (a) => a.status === "pending" && a.target_type === "marketing_post",
+              );
+              if (!pendingMarketing) return undefined;
+              return (decision, comment) => {
+                setPreviewOpen(false);
+                handleDecide(pendingMarketing.id, decision, comment);
+              };
+            })()}
+          />
+        )}
 
         {detailError && <div className="text-sm text-red-400">{detailError}</div>}
 
@@ -589,18 +625,27 @@ export default function WorkOrdersView() {
                         {String(outputs.marketing_post.caption ?? "")}
                       </div>
                       {Array.isArray(outputs.marketing_post.image_urls) && outputs.marketing_post.image_urls.length > 0 && (
-                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-                          {(outputs.marketing_post.image_urls as string[]).map((url, i) => (
-                            <img
-                              key={i}
-                              src={url}
-                              alt={`slide ${i + 1}`}
-                              className={`w-full rounded bg-slate-950 object-contain ${
-                                outputs.marketing_post?.format === "instatoon" ? "aspect-[4/5]" : "aspect-square"
-                              }`}
-                            />
-                          ))}
-                        </div>
+                        <>
+                          <button
+                            onClick={() => setPreviewOpen(true)}
+                            className="mb-2 rounded-md bg-brand-purple px-3 py-1.5 text-xs font-medium text-white"
+                          >
+                            🔍 크게 보고 결재하기
+                          </button>
+                          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+                            {(outputs.marketing_post.image_urls as string[]).map((url, i) => (
+                              <button key={i} onClick={() => setPreviewOpen(true)}>
+                                <img
+                                  src={url}
+                                  alt={`slide ${i + 1}`}
+                                  className={`w-full rounded bg-slate-950 object-contain ${
+                                    outputs.marketing_post?.format === "instatoon" ? "aspect-[4/5]" : "aspect-square"
+                                  }`}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </>
                       )}
                       {outputs.marketing_post.director_notes ? (
                         <div className="mt-2 text-xs text-slate-500">
@@ -782,6 +827,42 @@ export default function WorkOrdersView() {
       </div>
 
       {error && <div className="text-sm text-red-400">{error}</div>}
+
+      {autoSchedule && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <label className="flex items-center gap-2 text-sm text-slate-200">
+            <input
+              type="checkbox"
+              checked={autoSchedule.enabled}
+              onChange={(e) => saveAutoSchedule({ enabled: e.target.checked })}
+              className="h-4 w-4"
+            />
+            정기 자동 발행
+          </label>
+          <span className="text-xs text-slate-500">
+            켜두면 지시하지 않아도 앱을 번갈아가며 콘텐츠를 만들어 결재에 올립니다 (게시는 승인 후에만)
+          </span>
+          <div className="ml-auto flex items-center gap-2 text-sm text-slate-300">
+            <span className="text-xs text-slate-500">주기</span>
+            <select
+              value={autoSchedule.interval_hours}
+              onChange={(e) => saveAutoSchedule({ interval_hours: Number(e.target.value) })}
+              className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm"
+            >
+              <option value={24}>매일</option>
+              <option value={72}>3일마다</option>
+              <option value={168}>주 1회</option>
+              <option value={336}>2주마다</option>
+            </select>
+            {autoSchedule.last_run_at && (
+              <span className="text-xs text-slate-500">
+                최근 {new Date(autoSchedule.last_run_at).toLocaleString("ko-KR")}
+                {autoSchedule.last_product ? ` · ${autoSchedule.last_product}` : ""}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-slate-400">불러오는 중...</div>

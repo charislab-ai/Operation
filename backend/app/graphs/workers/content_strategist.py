@@ -7,7 +7,6 @@ from app.graphs.workers._marketing_shared import original_ceo_text
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
-from app.workers.rag_worker import rag_search_safe
 
 llm = get_llm()
 
@@ -59,14 +58,6 @@ async def content_strategist_node(state: OSState, config: RunnableConfig) -> dic
     system_prompt = SYSTEM_PROMPT_INSTATOON if brief.get("format") == "instatoon" else SYSTEM_PROMPT_CARD_NEWS
     run_id = start_run("ContentStrategist", {"slide_topics": brief["slide_topics"]}, thread_id=thread_id)
 
-    query = f"{brief['product']} {' '.join(brief['slide_topics'])}"
-    related_docs = await rag_search_safe(query, limit=3)
-    doc_context = (
-        "\n\n".join(f"[제품 특징 문서] {d['content']}" for d in related_docs)
-        if related_docs
-        else "(참고할 제품 문서 없음)"
-    )
-
     benchmarks = await fetch_latest_benchmarks(limit=2)
     benchmark_context = (
         "\n\n".join(f"[최근 마케팅 벤치마킹 리포트]\n{b}" for b in benchmarks)
@@ -79,7 +70,7 @@ async def content_strategist_node(state: OSState, config: RunnableConfig) -> dic
         f"제품: {brief['product']}\n채널: {brief['channel']}\n"
         f"슬라이드 주제({len(brief['slide_topics'])}개, 이 순서 그대로 작성):\n"
         + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(brief["slide_topics"]))
-        + f"\n\n{doc_context}\n\n{benchmark_context}"
+        + f"\n\n{benchmark_context}"
     )
 
     strategy = await llm.complete_structured(

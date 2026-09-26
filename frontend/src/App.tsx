@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import Sidebar, { ViewKey } from "./components/Sidebar";
 import DirectiveBar from "./components/DirectiveBar";
-import CalendarView from "./views/Calendar/CalendarView";
 import DashboardView from "./views/Dashboard/DashboardView";
 import WorkOrdersView from "./views/WorkOrders/WorkOrdersView";
 import AppManagementView from "./views/AppManagement/AppManagementView";
@@ -58,7 +57,6 @@ export default function App() {
         <DirectiveBar />
         <main className="flex-1 overflow-auto">
           {active === "dashboard" && <DashboardView onNavigate={setActive} />}
-          {active === "calendar" && <CalendarView />}
           {active === "workOrders" && <WorkOrdersView />}
           {active === "appManagement" && <AppManagementView />}
           {active === "marketingBenchmarks" && <MarketingBenchmarksView />}

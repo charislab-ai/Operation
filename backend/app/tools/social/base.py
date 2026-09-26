@@ -10,6 +10,7 @@ class PostContent(BaseModel):
 
 class PostResult(BaseModel):
     post_id: str
+    permalink: str | None = None  # CEO가 실제 게시물을 바로 열어볼 수 있게 - 없으면 None
 
 
 class SocialPoster(Protocol):

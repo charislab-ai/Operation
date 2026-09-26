@@ -85,7 +85,22 @@ class MetaSocialPoster:
             if "id" not in publish_data:
                 raise MetaPostError(f"인스타그램 게시 실패: {publish_data}")
 
-        return PostResult(post_id=publish_data["id"])
+        return PostResult(
+            post_id=publish_data["id"],
+            permalink=await self._fetch_permalink(publish_data["id"], token),
+        )
+
+    async def _fetch_permalink(self, media_id: str, token: str) -> str | None:
+        """게시된 인스타그램 미디어의 공개 링크를 가져온다 - CEO가 결과를 바로 확인할 수 있어야
+        하므로. 실패해도 게시 자체는 성공이므로 None만 돌려주고 넘어간다."""
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                res = await client.get(
+                    f"{GRAPH_API_BASE}/{media_id}", params={"fields": "permalink", "access_token": token}
+                )
+            return res.json().get("permalink")
+        except Exception:
+            return None
 
     async def _post_facebook(self, content: PostContent) -> PostResult:
         page_id = settings.meta_page_id
@@ -99,7 +114,8 @@ class MetaSocialPoster:
                 data = res.json()
                 if "post_id" not in data and "id" not in data:
                     raise MetaPostError(f"페이스북 게시 실패: {data}")
-                return PostResult(post_id=data.get("post_id") or data["id"])
+                post_id = data.get("post_id") or data["id"]
+                return PostResult(post_id=post_id, permalink=f"https://www.facebook.com/{post_id}")
 
             media_fbids = []
             for url in content.image_urls:
@@ -124,4 +140,4 @@ class MetaSocialPoster:
             if "id" not in feed_data:
                 raise MetaPostError(f"페이스북 캐러셀 게시 실패: {feed_data}")
 
-        return PostResult(post_id=feed_data["id"])
+        return PostResult(post_id=feed_data["id"], permalink=f"https://www.facebook.com/{feed_data['id']}")

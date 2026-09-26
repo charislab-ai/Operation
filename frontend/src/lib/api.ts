@@ -264,97 +264,18 @@ export async function getDirectiveDetail(threadId: string): Promise<DirectiveDet
   return res.json();
 }
 
-export interface TaskOut {
-  id: string;
-  title: string;
-  status: "todo" | "in_progress" | "done";
-  dept: string;
-  assignee_agent: string;
-  start_date: string | null;
-  end_date: string | null;
-  wbs_parent_id: string | null;
-  progress_pct: number;
-}
 
-export interface ScheduleOut {
-  id: string;
-  project_id: string;
-  task_id: string;
-  calendar_start: string | null;
-  calendar_end: string | null;
-  task: TaskOut | null;
-}
 
-export async function listSchedules(withTask = true): Promise<ScheduleOut[]> {
-  const res = await fetch(`${API_BASE}/schedules?with_task=${withTask}`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "schedule fetch failed");
-  }
-  return res.json();
-}
 
-export async function listTasks(): Promise<TaskOut[]> {
-  const res = await fetch(`${API_BASE}/tasks`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "task fetch failed");
-  }
-  return res.json();
-}
 
-export interface FinanceSummaryPoint {
-  period: string;
-  expense: number;
-}
 
-export async function getFinanceSummary(): Promise<FinanceSummaryPoint[]> {
-  const res = await fetch(`${API_BASE}/finance/summary`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "finance summary fetch failed");
-  }
-  return res.json();
-}
 
-export interface FinanceEntryOut {
-  id: string;
-  entry_date: string | null;
-  debit_account: string;
-  credit_account: string;
-  amount: number;
-  category: string | null;
-  vat_flag: boolean;
-  merchant: string | null;
-  status: "draft" | "confirmed" | "rejected";
-  receipt_url: string | null;
-}
 
-export async function listFinanceEntries(): Promise<FinanceEntryOut[]> {
-  const res = await fetch(`${API_BASE}/finance/entries`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "finance entries fetch failed");
-  }
-  return res.json();
-}
 
-export interface ReceiptUploadOut {
-  finance_entry_id: string;
-  status: string;
-}
 
-export async function uploadReceipt(file: File): Promise<ReceiptUploadOut> {
-  const formData = new FormData();
-  formData.append("file", file);
-  const res = await fetch(`${API_BASE}/finance/receipts`, {
-    method: "POST",
-    headers: authHeaders(),
-    body: formData,
-  });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "receipt upload failed");
-  }
-  return res.json();
-}
 
 export interface MarketingMetricOut {
+  permalink?: string | null;
   id: string;
   product: string;
   channel: string;
@@ -491,50 +412,9 @@ export async function regenerateMascot(name: string): Promise<ProductOut> {
   return res.json();
 }
 
-export interface DeskOut {
-  id: string;
-  room: string;
-  grid_x: number;
-  grid_y: number;
-  dept: string | null;
-  label: string | null;
-}
 
-export async function listDesks(): Promise<DeskOut[]> {
-  const res = await fetch(`${API_BASE}/office/desks`, { headers: authHeaders() });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "desk fetch failed");
-  }
-  return res.json();
-}
 
-export async function createDesk(desk: {
-  room: string;
-  grid_x: number;
-  grid_y: number;
-  dept?: string;
-  label?: string;
-}): Promise<DeskOut> {
-  const res = await fetch(`${API_BASE}/office/desks`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(desk),
-  });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "desk creation failed");
-  }
-  return res.json();
-}
 
-export async function deleteDesk(deskId: string): Promise<void> {
-  const res = await fetch(`${API_BASE}/office/desks/${deskId}`, {
-    method: "DELETE",
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "desk deletion failed");
-  }
-}
 
 export interface AgentStatusOut {
   agent_name: string;
@@ -562,37 +442,8 @@ export async function getAgentStatus(): Promise<AgentStatusOut[]> {
   return res.json();
 }
 
-export interface DocumentSearchResult {
-  document_id: string;
-  content: string;
-  similarity: number;
-}
 
-export async function createDocument(doc: {
-  title: string;
-  content: string;
-  source_path?: string;
-}): Promise<{ id: string; title: string | null; source_path: string | null }> {
-  const res = await fetch(`${API_BASE}/documents`, {
-    method: "POST",
-    headers: authHeaders({ "Content-Type": "application/json" }),
-    body: JSON.stringify(doc),
-  });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "document creation failed");
-  }
-  return res.json();
-}
 
-export async function searchDocuments(q: string): Promise<DocumentSearchResult[]> {
-  const res = await fetch(`${API_BASE}/documents/search?${new URLSearchParams({ q })}`, {
-    headers: authHeaders(),
-  });
-  if (!res.ok) {
-    throw new Error((await res.json()).detail ?? "document search failed");
-  }
-  return res.json();
-}
 
 export type AuditLogEntry =
   | {
@@ -645,5 +496,31 @@ export async function getBenchmark(filename: string): Promise<BenchmarkDetail> {
   if (!res.ok) {
     throw new Error((await res.json()).detail ?? "benchmark detail fetch failed");
   }
+  return res.json();
+}
+
+export interface AutoScheduleOut {
+  enabled: boolean;
+  interval_hours: number;
+  products: string[];
+  last_run_at: string | null;
+  last_product: string | null;
+}
+
+export async function getAutoSchedule(): Promise<AutoScheduleOut> {
+  const res = await fetch(`${API_BASE}/marketing/auto-schedule`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "auto schedule fetch failed");
+  return res.json();
+}
+
+export async function updateAutoSchedule(
+  patch: Partial<Pick<AutoScheduleOut, "enabled" | "interval_hours" | "products">>,
+): Promise<AutoScheduleOut> {
+  const res = await fetch(`${API_BASE}/marketing/auto-schedule`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "auto schedule update failed");
   return res.json();
 }

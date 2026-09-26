@@ -146,3 +146,38 @@ async def get_benchmark(filename: str) -> dict:
     if content is None:
         raise HTTPException(status_code=404, detail="not found")
     return {"filename": filename, "content": content}
+
+
+class AutoScheduleOut(BaseModel):
+    enabled: bool
+    interval_hours: int
+    products: list[str]
+    last_run_at: str | None
+    last_product: str | None
+
+
+class AutoScheduleUpdate(BaseModel):
+    enabled: bool | None = None
+    interval_hours: int | None = None
+    products: list[str] | None = None
+
+
+@router.get("/auto-schedule", response_model=AutoScheduleOut)
+def get_auto_schedule() -> dict:
+    """정기 자동 발행 설정 조회 - 켜두면 CEO가 지시하지 않아도 주기적으로 콘텐츠를 만들어
+    결재에 올린다(게시는 여전히 CEO 승인 후에만 이뤄짐)."""
+    rows = get_supabase().table("marketing_auto_schedule").select("*").eq("id", 1).execute().data
+    if not rows:
+        return {"enabled": False, "interval_hours": 72, "products": [], "last_run_at": None, "last_product": None}
+    return rows[0]
+
+
+@router.patch("/auto-schedule", response_model=AutoScheduleOut)
+def update_auto_schedule(payload: AutoScheduleUpdate) -> dict:
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="수정할 값이 없습니다")
+    if "interval_hours" in updates and updates["interval_hours"] < 1:
+        raise HTTPException(status_code=400, detail="발행 주기는 1시간 이상이어야 합니다")
+    result = get_supabase().table("marketing_auto_schedule").update(updates).eq("id", 1).execute()
+    return result.data[0]

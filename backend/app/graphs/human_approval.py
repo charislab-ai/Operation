@@ -5,16 +5,7 @@ from langgraph.types import interrupt
 
 from app.graphs.state import OSState
 
-ApprovalKind = Literal["pm", "marketing", "dev"]
-
-
-def _pm_payload(state: OSState) -> dict:
-    wbs = state.get("wbs_plan", {})
-    return {
-        "type": "task_plan_approval",
-        "project_title": wbs.get("project_title"),
-        "tasks": wbs.get("tasks", []),
-    }
+ApprovalKind = Literal["marketing", "dev"]
 
 
 def _marketing_payload(state: OSState) -> dict:
@@ -43,7 +34,7 @@ def _dev_payload(state: OSState) -> dict:
     }
 
 
-_PAYLOAD_BUILDERS = {"pm": _pm_payload, "marketing": _marketing_payload, "dev": _dev_payload}
+_PAYLOAD_BUILDERS = {"marketing": _marketing_payload, "dev": _dev_payload}
 
 
 def make_approval_node(kind: ApprovalKind):
@@ -70,7 +61,6 @@ def make_approval_node(kind: ApprovalKind):
 # 브리핑 노드부터 다시 시작해야 한다(디렉터가 보완 사유를 반영한 새 브리핑을 써야 전략가/디자이너가
 # 다시 맞물려 작업할 수 있음).
 _REVISION_RESTART_NODE: dict[ApprovalKind, str] = {
-    "pm": "pm_worker",
     "marketing": "marketing_director_brief",
     "dev": "dev_worker",
 }

@@ -484,8 +484,6 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         "decisions": state_values.get("decisions", {}),
         "revision_notes": state_values.get("revision_notes", {}),
         "outputs": {
-            "biz_plan": state_values.get("biz_plan"),
-            "wbs_plan": state_values.get("wbs_plan"),
             "marketing_post": state_values.get("marketing_post"),
             "dev_proposal": state_values.get("dev_proposal"),
         },

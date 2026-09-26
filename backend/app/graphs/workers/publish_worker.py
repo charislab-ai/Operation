@@ -1,4 +1,3 @@
-import random
 from datetime import date
 
 from langchain_core.runnables import RunnableConfig
@@ -7,6 +6,7 @@ from app.db.agent_runs import finish_run, start_run
 from app.db.supabase_client import get_supabase
 from app.graphs.state import OSState
 from app.tools.social import get_social_poster
+from app.tools.telegram_bot import notify_ceo
 from app.tools.social.base import PostContent
 
 
@@ -21,38 +21,32 @@ async def publish_worker_node(state: OSState, config: RunnableConfig) -> dict:
     poster = get_social_poster(post["channel"], post["product"])
     result = await poster.post(PostContent(caption=post["caption"], image_urls=post["image_urls"]))
 
-    # Mock 단계: 실제 지표 수집 API 연동 전까지 그럴듯한 더미 값으로 파이프라인을 검증한다
-    # (ARCHITECTURE.md §5 — 실연동 전환 시 이 부분을 실제 지표 조회로 교체).
-    impressions = random.randint(200, 2000)
-    clicks = int(impressions * random.uniform(0.02, 0.08))
-    conversions = int(clicks * random.uniform(0.05, 0.15))
-
+    # 조회수/클릭은 실제 Insights API를 붙이기 전까지 기록하지 않는다 - 예전엔 난수로 지어낸
+    # 숫자를 저장해서 그걸로 성과를 판단할 위험이 있었다(CEO 지적으로 제거).
     get_supabase().table("marketing_metrics").insert(
         {
             "product": post["product"],
             "channel": post["channel"],
             "metric_date": date.today().isoformat(),
-            "impressions": impressions,
-            "clicks": clicks,
-            "conversions": conversions,
             "post_id": result.post_id,
+            "permalink": result.permalink,
         }
     ).execute()
 
-    finish_run(
-        run_id,
-        {
-            "post_id": result.post_id,
-            "impressions": impressions,
-            "clicks": clicks,
-            "conversions": conversions,
-        },
-    )
+    finish_run(run_id, {"post_id": result.post_id, "permalink": result.permalink})
+
+    # 게시가 끝나면 실제 게시물 링크를 바로 보내준다 - 예전엔 어디에 올라갔는지 확인할 방법이 없었다.
+    link_text = result.permalink or f"(post_id: {result.post_id})"
+    try:
+        await notify_ceo(f"🚀 {post['product']} · {post['channel']} 게시 완료\n{link_text}")
+    except Exception:
+        pass
+
     return {
         "messages": [
             {
                 "role": "assistant",
-                "content": f"[Publish] {post['channel']}에 게시 완료 (post_id={result.post_id})",
+                "content": f"[Publish] {post['channel']}에 게시 완료 ({link_text})",
             }
         ],
     }
