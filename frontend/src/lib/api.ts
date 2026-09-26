@@ -576,3 +576,56 @@ export async function toggleLayout(layoutId: string, enabled: boolean): Promise<
   if (!res.ok) throw new Error((await res.json()).detail ?? "layout toggle failed");
   return res.json();
 }
+
+// ── 슬라이드 편집기 ──────────────────────────────────────────────────────────
+// 승인 전에 카드의 문구/틀을 고쳐 바로 다시 그려본다. 미리보기(render-preview)는 AI를
+// 호출하지 않아 비용이 0이고, 사진 재생성(regenerate-photo)만 유료다.
+
+export interface SlideEdit {
+  headline: string;
+  subtext: string;
+  layout_name?: string;
+  layout_spec?: Record<string, unknown>;
+  source_image_url?: string | null;
+}
+
+export async function renderSlidePreview(input: {
+  product: string;
+  format?: string;
+  page_label?: string | null;
+  headline: string;
+  subtext: string;
+  layout_spec?: Record<string, unknown>;
+  source_image_url?: string | null;
+}): Promise<string> {
+  const res = await fetch(`${API_BASE}/marketing/render-preview`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "preview failed");
+  return (await res.json()).image_data_url as string;
+}
+
+export async function saveMarketingPost(
+  approvalId: string,
+  body: { caption?: string; slides: SlideEdit[] },
+): Promise<Record<string, unknown>> {
+  const res = await fetch(`${API_BASE}/marketing/posts/${approvalId}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "save failed");
+  return res.json();
+}
+
+export async function regenerateSlidePhoto(imagePrompt: string, threadId?: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/marketing/regenerate-photo`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ image_prompt: imagePrompt, thread_id: threadId }),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "regenerate failed");
+  return (await res.json()).source_image_url as string;
+}

@@ -1,5 +1,7 @@
+import base64
 import mimetypes
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -245,3 +247,194 @@ def toggle_layout(layout_id: str, enabled: bool) -> dict:
     if not result.data:
         raise HTTPException(status_code=404, detail="layout not found")
     return result.data[0]
+
+
+# ---------------------------------------------------------------------------
+# 슬라이드 편집기 - 승인 전에 CEO가 카드의 문구/틀을 직접 고쳐서 바로 다시 그려본다.
+# Why: 지금까지는 AI가 만든 결과를 "승인/보완/반려" 셋 중 하나로만 다룰 수 있었고, 헤드라인
+# 한 줄이나 틀만 바꾸고 싶어도 보완을 걸어 파이프라인 전체(LLM+이미지 생성)를 다시 돌려야 했다
+# (몇 분 + 이미지 생성 비용). 카드 합성에 필요한 원본 사진을 slides[].source_image_url로
+# 보관해두었으므로, 문구/틀 수정은 AI 호출 없이 PIL 재합성만으로 끝난다(비용 0, 수 초).
+# ---------------------------------------------------------------------------
+
+
+class SlideRenderIn(BaseModel):
+    headline: str
+    subtext: str = ""
+    layout_name: str = ""
+    layout_spec: dict = {}
+    source_image_url: str | None = None
+
+
+class PreviewIn(SlideRenderIn):
+    product: str
+    page_label: str | None = None
+    format: str = "card_news"
+
+
+async def _fetch_image_bytes(url: str | None) -> bytes:
+    """원본 사진을 공개 URL에서 내려받는다. 못 받으면 빈 bytes - layout_engine이 사진 없는
+    레이아웃(photo_style="none")과 같은 경로로 처리하므로 편집기가 죽지는 않는다."""
+    if not url:
+        return b""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.get(url)
+        except Exception:
+            return b""
+    return resp.content if resp.status_code == 200 else b""
+
+
+def _brand_color_of(product: str) -> tuple[int, int, int]:
+    from app.graphs.workers._marketing_shared import canonical_product, fetch_products, hex_to_rgb
+    from app.tools.ai.image.card_renderer import DEFAULT_BRAND
+
+    row = fetch_products().get(canonical_product(product)) or {}
+    return hex_to_rgb(row.get("brand_color")) or DEFAULT_BRAND
+
+
+def _render_slide(
+    slide: dict, product: str, page_label: str | None, brand: tuple[int, int, int], fmt: str, photo: bytes
+) -> bytes:
+    from app.tools.ai.image.card_renderer import render_comic_panel
+    from app.tools.ai.image.layout_engine import render_composed
+
+    if fmt == "instatoon":
+        # 인스타툰은 AI가 그린 컷 그림 위에 말풍선/자막만 다시 얹는다(레이아웃 spec은 쓰지 않음).
+        return render_comic_panel(
+            photo, slide.get("headline", ""), slide.get("subtext", ""), product, page_label, brand
+        )
+    return render_composed(
+        photo,
+        slide.get("headline", ""),
+        slide.get("subtext", ""),
+        product,
+        page_label,
+        brand,
+        spec=slide.get("layout_spec") or {},
+    )
+
+
+@router.post("/render-preview")
+async def render_preview(payload: PreviewIn) -> dict:
+    """문구/틀을 바꾼 카드 한 장을 AI 호출 없이 즉시 다시 그려 미리보기로 돌려준다(비용 0).
+    프론트 편집기가 입력이 바뀔 때마다 호출하므로 절대 AI를 부르지 않는다."""
+    photo = await _fetch_image_bytes(payload.source_image_url)
+    image = _render_slide(
+        payload.model_dump(),
+        payload.product,
+        payload.page_label,
+        _brand_color_of(payload.product),
+        payload.format,
+        photo,
+    )
+    return {"image_data_url": "data:image/png;base64," + base64.b64encode(image).decode()}
+
+
+class PostEditIn(BaseModel):
+    caption: str | None = None
+    slides: list[SlideRenderIn]
+
+
+@router.patch("/posts/{approval_id}")
+async def edit_marketing_post(approval_id: str, payload: PostEditIn) -> dict:
+    """결재 대기 중인 카드뉴스/인스타툰의 문구·틀·캡션을 확정 저장한다.
+
+    편집 결과는 approvals.payload(= marketing_post와 같은 모양)에 덮어쓰고 edited_at을 찍는다.
+    이후 CEO가 승인하면 resume_approval이 이 payload를 edited_post로 넘겨 그래프 상태의
+    marketing_post를 교체하므로(app/graphs/human_approval.py), 실제 게시에도 편집본이 나간다.
+    """
+    from app.tools.ai.image.storage import upload_marketing_image
+
+    supabase = get_supabase()
+    rows = (
+        supabase.table("approvals")
+        .select("id, status, target_type, payload")
+        .eq("id", approval_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="approval not found")
+    row = rows[0]
+    if row["target_type"] != "marketing_post":
+        raise HTTPException(status_code=400, detail="카드뉴스 결재 카드만 편집할 수 있습니다")
+    if row["status"] != "pending":
+        # processing이면 이미 승인/보완 처리가 돌고 있다 - 그 위에 편집을 얹으면 어느 쪽이
+        # 최종본인지 알 수 없게 되므로 막는다(중복 처리 방지 원칙과 동일).
+        raise HTTPException(status_code=409, detail="이미 결재가 진행됐거나 처리 중이라 편집할 수 없습니다")
+
+    post = dict(row["payload"] or {})
+    slides = list(post.get("slides") or [])
+    if len(payload.slides) != len(slides):
+        raise HTTPException(
+            status_code=400, detail=f"슬라이드 개수가 맞지 않습니다(현재 {len(slides)}장)"
+        )
+
+    product = post.get("product") or ""
+    fmt = post.get("format", "card_news")
+    brand = _brand_color_of(product)
+    total = len(slides)
+
+    new_slides: list[dict] = []
+    image_urls: list[str] = []
+    for i, (existing, edit) in enumerate(zip(slides, payload.slides)):
+        merged = {**existing, **{k: v for k, v in edit.model_dump().items() if v not in (None, "")}}
+        # layout_spec은 빈 dict도 "안 바꿈"으로 취급해야 하므로 위 필터에 걸려 걸러진다 -
+        # 명시적으로 넘어온 경우만 교체한다.
+        if edit.layout_spec:
+            merged["layout_spec"] = edit.layout_spec
+        merged["subtext"] = edit.subtext  # 보조문구는 빈 문자열(삭제)도 유효한 편집
+        needs_photo = fmt == "instatoon" or (merged.get("layout_spec") or {}).get("photo_style", "full") != "none"
+        if needs_photo and not merged.get("source_image_url"):
+            # 편집기 도입(source_image_url 보관) 이전에 만들어진 카드 - 원본 사진이 없어서 다시
+            # 합성하면 사진이 통째로 사라진다. 조용히 망가뜨리지 않고 막고, 사진 재생성을 안내한다.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{i + 1}번째 장은 편집기 도입 전에 만들어져 원본 사진이 없습니다 - "
+                "'사진만 다시 생성'을 먼저 눌러주세요",
+            )
+        photo = await _fetch_image_bytes(merged.get("source_image_url"))
+        card = _render_slide(merged, product, f"{i + 1}/{total}", brand, fmt, photo)
+        image_urls.append(upload_marketing_image(card))
+        new_slides.append(merged)
+
+    post["slides"] = new_slides
+    post["image_urls"] = image_urls
+    if payload.caption is not None:
+        post["caption"] = payload.caption
+
+    supabase.table("approvals").update(
+        {"payload": post, "edited_at": datetime.now(timezone.utc).isoformat()}
+    ).eq("id", approval_id).eq("status", "pending").execute()
+    return post
+
+
+class RegeneratePhotoIn(BaseModel):
+    image_prompt: str
+    thread_id: str | None = None
+
+
+@router.post("/regenerate-photo")
+async def regenerate_photo(payload: RegeneratePhotoIn) -> dict:
+    """슬라이드의 사진만 AI로 다시 생성한다 - 유료(이미지 1장 비용)라 CEO가 버튼을 직접
+    눌렀을 때만 돈다. 문구/틀 수정(render-preview)은 이 경로를 타지 않는다."""
+    from app.services.budget import BudgetExceeded
+    from app.tools.ai.image import get_image_gen
+    from app.tools.ai.image.storage import upload_marketing_image
+
+    if not payload.image_prompt.strip():
+        raise HTTPException(status_code=400, detail="사진 지시문을 입력해주세요")
+    try:
+        image = await get_image_gen().generate_bytes(
+            payload.image_prompt, thread_id=payload.thread_id, agent_name="SlideEditor"
+        )
+    except BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+    except Exception as exc:
+        from app.services.failures import describe_error
+
+        raise HTTPException(status_code=502, detail=describe_error(exc)) from exc
+    return {"source_image_url": upload_marketing_image(image)}

@@ -38,7 +38,7 @@ async def resume_approval(graph, supabase, approval_id: str, decision: str, comm
     """
     approval_row = (
         supabase.table("approvals")
-        .select("thread_id, telegram_msg_id, payload, target_type, interrupt_id")
+        .select("thread_id, telegram_msg_id, payload, target_type, interrupt_id, edited_at")
         .eq("id", approval_id)
         .single()
         .execute()
@@ -52,11 +52,12 @@ async def resume_approval(graph, supabase, approval_id: str, decision: str, comm
     config = {"configurable": {"thread_id": thread_id}}
     # Goal형 병렬 실행에서는 같은 thread_id 안에 다른 부서의 interrupt가 동시에 더 남아있을 수 있어
     # interrupt_id로 "이 카드에 해당하는 interrupt만" 재개한다(나머지는 그대로 대기 유지).
-    resume_value = (
-        {interrupt_id: {"decision": decision, "comment": comment}}
-        if interrupt_id
-        else {"decision": decision, "comment": comment}
-    )
+    decision_payload: dict = {"decision": decision, "comment": comment}
+    # 슬라이드 편집기로 고친 카드가 있으면(approvals.payload에 덮어써 둠) 그 편집본을 함께
+    # 넘겨 승인 노드가 marketing_post를 교체하게 한다 - 안 넘기면 AI 원본이 게시돼버린다.
+    if approval_row.data.get("edited_at") and original_target_type == "marketing_post" and original_payload:
+        decision_payload["edited_post"] = {k: v for k, v in original_payload.items() if k != "type"}
+    resume_value = {interrupt_id: decision_payload} if interrupt_id else decision_payload
     try:
         result = await graph.ainvoke(Command(resume=resume_value), config)
     except Exception as exc:

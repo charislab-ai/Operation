@@ -139,7 +139,7 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
         # 최대한 일관되게 유지한다(마스코트 캐릭터라 실제 스크린샷/AI 사진 생성 경로는 안 씀).
         mascot_bytes = await ensure_mascot(product_row or {"name": brief["product"]})
         for i, slide in enumerate(merged_slides):
-            panel_bytes = await compose_instatoon_panel(
+            panel_bytes, panel_source = await compose_instatoon_panel(
                 mascot_bytes,
                 slide["image_prompt"],
                 slide["headline"],
@@ -149,7 +149,11 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
                 brand_color=brand_color,
                 thread_id=thread_id,
                 agent_name="VisualDesigner",
+                return_source=True,
             )
+            # 말풍선을 얹기 전 컷 그림도 보관한다 - 편집기에서 대사만 고쳐 다시 얹을 때
+            # AI 재생성 없이 이 그림을 그대로 쓴다(카드뉴스의 source_image_url과 같은 목적).
+            slide["source_image_url"] = upload_marketing_image(panel_source)
             image_urls.append(upload_marketing_image(panel_bytes))
     else:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -167,15 +171,19 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
                     if resp.status_code == 200:
                         kwargs["illustration_bytes"] = resp.content
 
-                card_bytes = await compose_marketing_card(
+                card_bytes, source_bytes = await compose_marketing_card(
                     slide["image_prompt"],
                     slide["headline"],
                     slide["subtext"],
                     brief["product"],
                     thread_id=thread_id,
                     agent_name="VisualDesigner",
+                    return_source=True,
                     **kwargs,
                 )
+                # 원본 사진도 보관한다 - 편집기에서 문구/틀만 바꿔 다시 그릴 때 AI 재생성 없이
+                # 이 사진을 그대로 재사용하기 위함(수정 비용 0).
+                slide["source_image_url"] = upload_marketing_image(source_bytes)
                 image_urls.append(upload_marketing_image(card_bytes))
 
     review = await llm.complete_structured(

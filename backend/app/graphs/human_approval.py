@@ -46,13 +46,21 @@ def make_approval_node(kind: ApprovalKind):
         decision = interrupt(_PAYLOAD_BUILDERS[kind](state))
         decision_value = decision.get("decision", "rejected") if isinstance(decision, dict) else "rejected"
         comment = decision.get("comment", "") if isinstance(decision, dict) else ""
-        return {
+        edited_post = decision.get("edited_post") if isinstance(decision, dict) else None
+        update: dict = {
             "decisions": {kind: decision_value},
             "revision_notes": {kind: comment} if decision_value == "revision" and comment else {},
             "messages": [
                 {"role": "user", "content": f"[텔레그램 승인 응답:{kind}] {decision_value} {comment}".strip()}
             ],
         }
+        # 슬라이드 편집기에서 CEO가 직접 고친 내용이 있으면 그걸 최종본으로 삼는다.
+        # Why 이 경로: 그래프 밖에서 aupdate_state로 상태를 덮어쓰면 대기 중인 interrupt의 id가
+        # 바뀌어 저장해둔 interrupt_id로는 재개할 수 없게 된다(그럼 승인이 새 카드를 또 만든다).
+        # 재개 값에 실어 보내 승인 노드 자신이 상태를 쓰게 하면 그 위험이 없다.
+        if kind == "marketing" and isinstance(edited_post, dict) and edited_post.get("image_urls"):
+            update["marketing_post"] = edited_post
+        return update
 
     return node
 

@@ -398,7 +398,7 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
 
     approvals = (
         supabase.table("approvals")
-        .select("id, target_type, status, payload, created_at, awaiting_comment")
+        .select("id, target_type, status, payload, created_at, awaiting_comment, edited_at")
         .eq("thread_id", thread_id)
         .order("created_at")
         .execute()
@@ -473,6 +473,22 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         for m in media_rows
     ]
 
+    # 슬라이드 편집기로 고친 카드가 아직 결재 대기 중이면, 화면엔 그래프 상태의 AI 원본이 아니라
+    # 편집본을 보여줘야 한다(편집본은 승인 시점에 marketing_post로 들어간다 - approvals.py 참고).
+    marketing_post = state_values.get("marketing_post")
+    edited = next(
+        (
+            a
+            for a in approvals
+            if a["target_type"] == "marketing_post"
+            and a.get("edited_at")
+            and a["status"] in ("pending", "processing")
+        ),
+        None,
+    )
+    if edited and edited.get("payload"):
+        marketing_post = {k: v for k, v in edited["payload"].items() if k != "type"}
+
     return {
         "thread_id": thread_id,
         "ceo_directive": directive["ceo_directive"],
@@ -484,7 +500,7 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         "decisions": state_values.get("decisions", {}),
         "revision_notes": state_values.get("revision_notes", {}),
         "outputs": {
-            "marketing_post": state_values.get("marketing_post"),
+            "marketing_post": marketing_post,
             "dev_proposal": state_values.get("dev_proposal"),
         },
         "approvals": approvals,

@@ -372,6 +372,12 @@ export default function WorkOrdersView() {
             post={detail.outputs.marketing_post as Record<string, unknown>}
             deciding={decidingId !== null}
             onClose={() => setPreviewOpen(false)}
+            approvalId={
+              detail.approvals.find((a) => a.status === "pending" && a.target_type === "marketing_post")?.id ??
+              null
+            }
+            threadId={detail.thread_id}
+            onSaved={() => loadDetail(detail.thread_id)}
             onDecide={(() => {
               const pendingMarketing = detail.approvals.find(
                 (a) => a.status === "pending" && a.target_type === "marketing_post",

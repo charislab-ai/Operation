@@ -269,7 +269,9 @@ def render_composed(
 
     # 6) 제품 뱃지 + 페이지
     bf = _font("Bold", 24)
-    draw.text((pad, pad), product.upper(), font=bf, fill=brand_color if not dark_bg else _lighten(brand_color, 0.5))
+    # 어두운 배경(잉크/브랜드 그라디언트)에선 브랜드 컬러를 밝힌 색이 배경과 거의 같은 색이라
+    # 뱃지가 안 보였다(실측) - 어두운 배경에선 흰색으로 찍는다.
+    draw.text((pad, pad), product.upper(), font=bf, fill=WHITE if dark_bg else brand_color)
     if page_label:
         lf = _font("SemiBold", 24)
         lw = draw.textlength(page_label, font=lf)

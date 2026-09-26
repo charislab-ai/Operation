@@ -14,7 +14,8 @@ async def compose_marketing_card(
     thread_id: str | None = None,
     agent_name: str | None = None,
     layout_spec: dict | None = None,
-) -> bytes:
+    return_source: bool = False,
+) -> bytes | tuple[bytes, bytes]:
     """배경 이미지 위에 실제 헤드라인/보조문구를 합성한 카드뉴스 이미지를 만든다.
 
     텍스트를 AI 생성에 맡기면 누락/오타가 나올 수 있어(실측으로 확인된 한계), 배경만 AI가 만들고
@@ -29,9 +30,11 @@ async def compose_marketing_card(
         illustration_bytes = await get_image_gen().generate_bytes(
             image_prompt, thread_id=thread_id, agent_name=agent_name
         )
-    return render_composed(
+    card = render_composed(
         illustration_bytes, headline, subtext, product, page_label, brand_color, spec=layout_spec
     )
+    # return_source=True면 합성 전 원본 사진도 함께 돌려준다(편집기에서 재활용).
+    return (card, illustration_bytes) if return_source else card
 
 
 async def compose_instatoon_panel(
@@ -44,7 +47,8 @@ async def compose_instatoon_panel(
     brand_color: tuple[int, int, int] = DEFAULT_BRAND,
     thread_id: str | None = None,
     agent_name: str | None = None,
-) -> bytes:
+    return_source: bool = False,
+) -> bytes | tuple[bytes, bytes]:
     """인스타툰(말풍선 만화) 한 컷을 만든다. mascot_reference_bytes(mascot.py에서 만든 고정 캐릭터
     참조 이미지)를 edit_bytes에 넘겨 이 컷의 장면(scene_prompt: 포즈/표정/배경)을 그리게 하고,
     거기에 말풍선(dialogue)/자막(narration)을 PIL로 합성한다 - compose_marketing_card와 마찬가지로
@@ -52,4 +56,6 @@ async def compose_instatoon_panel(
     panel_bytes = await get_instatoon_image_gen().edit_bytes(
         mascot_reference_bytes, scene_prompt, thread_id=thread_id, agent_name=agent_name
     )
-    return render_comic_panel(panel_bytes, dialogue, narration, product, page_label, brand_color)
+    panel = render_comic_panel(panel_bytes, dialogue, narration, product, page_label, brand_color)
+    # return_source=True면 말풍선 얹기 전 원본 컷도 함께 돌려준다(편집기에서 재활용).
+    return (panel, panel_bytes) if return_source else panel
