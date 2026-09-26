@@ -44,6 +44,40 @@
 
 > **구현 현황(Phase 1~4):** `Supervisor`(bizdev/pm/marketing/dev 4분기) → `BizDevWorker`/`MarketingWorker`/`DevWorker` → `PMWorker`/`HumanApprovalNode` → (marketing 승인 시) `PublishWorker`까지 구현·검증 완료(`backend/app/graphs/`). `HumanApprovalNode`는 `task_plan`/`finance_entry`/`marketing_post`/`dev_proposal` 4종 승인을 공용 인프라(`approvals` 테이블 + 텔레그램 카드, `callback_data="{target_type}:{id}:{decision}"`)로 처리한다 — finance_entry만 그래프 밖에서 직접 처리(§2 FinanceWorker 노트 참고), 나머지 셋은 그래프 resume. `task_plan`/`dev_proposal`은 3버튼(승인/보완/반려, 보완 시 해당 Worker로 재진입), `finance_entry`/`marketing_post`는 2버튼(승인/반려). Checkpointer는 `AsyncPostgresSaver.from_conn_string()`(단일 커넥션, `AsyncExitStack`으로 앱 lifespan 동안 유지)을 사용 — `SUPABASE_DB_URL`(REST service-role과 별개의 Postgres 직접 연결) 필요. `agent_runs`는 Phase 4에서 최초로 연결(모든 Worker 시작/종료 시 insert/update) — Metaverse View의 활동 상태 표시(§4 이하) 근거로 사용. Design Worker와 전체 C-Level(CFO/CDO) 라우팅은 이후 Phase에서 추가된다.
 
+### 2.0 마케팅 팀 조직 (2026-09-26 재편)
+
+한 노드가 여러 직무를 겸하면 시스템 프롬프트가 비대해져 뒤쪽 지침을 흘리는 문제가 실측으로
+확인돼(사진 연출 + 카드 틀 설계 + 스크린샷 선택을 겸하던 예전 `VisualDesigner`의 프롬프트가
+1,500토큰을 넘김 → "슬라이드 내용과 무관한 사진", "매번 같은 카드 틀" 사고), **직무 단위로
+노드를 쪼갰다.** 직원 명단은 `employees` 테이블이 관리하고(직급/직함/R&R/상태), 화면의 "직원"
+탭에서 CEO가 이름을 지어주거나 입사/대기를 전환한다.
+
+```
+supervisor → performance_marketer(입사 예정) → marketing_director_brief
+  → copywriter / social_editor / photo_art_director / layout_designer  (넷 다 같은 깊이 병렬)
+  → marketing_synthesis → brand_qa → marketing_approval → publish_worker
+```
+
+- **자료를 역할별로 쪼개서 준다**(`_marketing_shared.benchmark_slice`): 예전엔 세 노드가 벤치마킹
+  리포트 전문을 각자 통째로 받아 1인당 입력이 19k 토큰까지 갔다. 역할별 절만 주도록 바꾼 결과
+  **직원이 3명에서 6명으로 늘었는데 1회 총 입력은 그대로**(실측 57k → 58k), 1인당은 8~11k로 내려감.
+- **넷을 반드시 같은 깊이로 둔다**: 레이아웃 디자이너를 포토AD 뒤에 한 단계 더 붙였더니
+  `marketing_synthesis`가 **두 번** 실행돼 이미지 생성이 통째로 두 번 돌았고(비용 2배), 같은
+  스텝에 두 값이 겹치면 `InvalidUpdateError`로 죽었다. "스크린샷을 쓰는 장은 device 틀" 같은
+  규칙은 의존성을 만들지 않고 합성 단계에서 코드로 강제한다(`_force_device_for_screenshots`).
+- **브랜드 QA(신설)**: 완성된 카드 이미지를 멀티모달 LLM에 그대로 넘겨 **실물을 보고** 판정한다
+  (`Message.images`, base64 PNG). 자동 교정 가능한 문제(제목 길이/대비/위치)는 보관해둔 원본
+  사진 위에 다시 그려 고친다 — AI 이미지 재생성이 없어 비용 0, 교정은 1회만(핑퐁 방지).
+  첫 실전 실행에서 "번호 배지가 제품 뱃지를 덮는" 렌더링 버그를 사람 없이 잡아냈다.
+- **브랜드북은 에이전트가 아니라 자산**: 톤/타깃/핵심 메시지/금지 표현은 `products` 테이블 컬럼
+  (migration 0024)으로 두고 전원이 참조한다. LLM에게 매번 톤을 정하게 하면 회차마다 흔들린다.
+- **이름으로 지목**: CEO가 지시문이나 보완 사유에서 직원 이름을 부르면 그 직원만 "나에게 온
+  지시"로 받아들이고(`addressing_note`), 보완의 경우 **그 직원 노드로만 재진입**한다. 나머지
+  산출물과 사진은 state에 그대로 남아 재사용되므로(`_reusable_source`) 이미지 비용이 0이다.
+- **퍼포먼스 마케터는 입사 예정(onboarding)** 상태로 채용만 해뒀다 — 판단 근거가 될 게시 성과
+  데이터가 아직 없어서, 지금 투입하면 근거 없는 판단이 디렉터의 브리핑만 좁힌다. 노드는 자리에
+  있고 LLM 호출 없이 통과하며, CEO가 직원 화면에서 입사시키면 그때부터 동작한다.
+
 ### 2.1 Goal형 병렬 실행 (레퍼런스: Humant의 "Goal" 기능)
 
 `Supervisor`는 단순 라우터가 아니라 **킥오프 판단**을 겸한다 — CEO 지시 하나에 여러 부서가 동시에 필요하면(`GoalPlan.routes`가 2개 이상) 해당 Worker들을 **같은 슈퍼스텝에서 병렬 실행**하고, 부서별 브리핑(`worker_briefs`)까지 함께 생성해 각 Worker에게 전달한다. 단순 지시는 여전히 부서 1개만 골라 기존과 동일하게 순차 동작(하위 호환).

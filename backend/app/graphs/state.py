@@ -10,11 +10,19 @@ class OSState(TypedDict, total=False):
     ceo_directive: str
     active_departments: list[str]  # "marketing"|"dev" 중 이번 지시에 투입되는 부서들 (Supervisor가 기록)
     worker_briefs: dict[str, str]  # Supervisor가 부서별로 작성한 브리핑(킥오프 결과) - 부서명 -> 지시문
-    # 마케팅 팀 - MarketingDirector가 브리핑 작성 → ContentStrategist/VisualDesigner가 병렬로 각자
-    # 다른 키에만 쓰기 때문에(reducer 불필요) MarketingSynthesis가 둘 다 끝난 뒤 합쳐서 marketing_post를 만든다.
-    creative_brief: dict  # MarketingDirector 작성 (product/channel/slide_topics)
-    content_strategy: dict  # ContentStrategist 산출물 (caption/slides[headline,subtext])
-    visual_plan: dict  # VisualDesigner 산출물 (slides[image_prompt, real_screenshot_asset_id])
+    # 마케팅 팀 - MarketingDirector가 브리핑 작성 → 카피라이터/소셜에디터/포토AD가 병렬로,
+    # 레이아웃 디자이너는 포토AD 뒤에 이어서 작업한다. 각자 다른 키에만 쓰므로 reducer가 필요 없고,
+    # MarketingSynthesis가 전부 끝난 뒤 합쳐서 marketing_post를 만든다(→ BrandQA 검수 → 결재).
+    campaign_plan: dict  # PerformanceMarketer 산출물 (입사 전이면 없음) - 제품/채널/타깃/각도
+    creative_brief: dict  # MarketingDirector 작성 (product/channel/format/slide_topics)
+    copy_plan: dict  # Copywriter 산출물 (slides[headline, subtext]) - 카드 안 문구
+    caption_plan: dict  # SocialEditor 산출물 (caption, hashtags) - 피드 노출용
+    photo_plan: dict  # PhotoArtDirector 산출물 (slides[image_prompt, real_screenshot_asset_id])
+    layout_plan: dict  # LayoutDesigner 산출물 (slides[layout_name, layout_spec])
+    qa_report: dict  # BrandQA 산출물 (verdict/issues/summary) - 완성 카드 실물 검수 결과
+    # CEO가 지시문에서 이름을 부른 직원의 agent_key. 그 직원만 "나에게 내려온 지시"로 받아들이고
+    # 나머지는 기존 방향을 유지한다(app/graphs/workers/_marketing_shared.py::addressing_note)
+    addressed_to: str
     marketing_post: dict  # MarketingSynthesis가 최종 조립(product/channel/caption/slides/image_urls/director_notes)
     dev_proposal: dict  # DevWorker가 생성(title/summary/files_affected/code_sketch/pr_description), Phase 4
     # 부서별 승인 결과("approved"|"rejected"|"revision") - 병렬 승인이 서로 안 섞이게 부서명으로 구분.

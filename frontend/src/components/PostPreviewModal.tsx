@@ -348,6 +348,17 @@ export default function PostPreviewModal({
               {post.director_notes ? (
                 <div className="text-xs text-slate-500">🎬 {String(post.director_notes)}</div>
               ) : null}
+              {post.qa_summary ? (
+                <div
+                  className={`rounded border px-2 py-1.5 text-xs ${
+                    Array.isArray(post.qa_issues) && post.qa_issues.length > 0
+                      ? "border-amber-900 bg-amber-950/30 text-amber-300"
+                      : "border-emerald-900 bg-emerald-950/30 text-emerald-300"
+                  }`}
+                >
+                  🔍 브랜드 QA: {String(post.qa_summary)}
+                </div>
+              ) : null}
             </>
           )}
 

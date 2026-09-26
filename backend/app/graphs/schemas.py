@@ -41,10 +41,24 @@ class ContentSlide(BaseModel):
     subtext: str = Field(description="헤드라인 아래 들어갈 보조 설명 문구, 25자 내외")
 
 
-class ContentStrategy(BaseModel):
-    caption: str = Field(description="게시물 전체 캡션/문구 (다운로드 링크는 쓰지 말 것 - 별도로 붙음)")
+class CopyPlan(BaseModel):
+    """카피라이터 산출물 - 카드 안에 들어갈 짧은 문구만 담당(캡션은 소셜 에디터 담당)."""
+
     slides: list[ContentSlide] = Field(
         description="creative_brief.slide_topics와 정확히 같은 개수·순서로 대응하는 헤드라인/보조문구 목록"
+    )
+
+
+class CaptionPlan(BaseModel):
+    """소셜 에디터 산출물 - 피드에 노출되는 캡션/해시태그(발견성) 담당."""
+
+    caption: str = Field(
+        description="게시물 캡션. 첫 줄이 '더 보기' 이전에 보이는 훅이므로 가장 강한 문장을 맨 앞에. "
+        "다운로드 링크는 쓰지 말 것(별도로 붙음), 해시태그도 여기 쓰지 말 것(hashtags 필드에 따로)"
+    )
+    hashtags: list[str] = Field(
+        description="해시태그 5~12개. '#' 포함해서 적을 것. 대형 태그만 나열하지 말고 "
+        "중소형/니치 태그를 섞어 실제 도달에 도움이 되게 구성"
     )
 
 
@@ -74,17 +88,30 @@ class LayoutSpec(BaseModel):
     )
 
 
-class VisualSlide(BaseModel):
+class PhotoSlide(BaseModel):
     image_prompt: str = Field(
-        description="이 슬라이드 배경으로 쓸 일러스트/사진 생성 프롬프트 - 컬러풀하고 실사에 가까운 "
-        "스타일, 텍스트는 이미지 안에 넣지 말 것(헤드라인/보조문구는 별도로 합성됨). "
-        "real_screenshot_asset_id를 지정한 슬라이드에서는 이 필드가 쓰이지 않으니 빈 문자열로 둘 것"
+        description="이 장에 쓸 사진 생성 프롬프트(영어). 컬러풀하고 실사에 가까운 스타일, 텍스트는 "
+        "이미지 안에 넣지 말 것(문구는 따로 합성됨). **real_screenshot_asset_id를 실제로 지정한 "
+        "장에서만 빈 문자열이 허용되고, 그 외의 장은 절대 비워두면 안 됩니다** - 비우면 그 장은 "
+        "사진 없이 나갑니다. 쓸 스크린샷이 없으면 그 장면을 재현하는 사진 프롬프트를 직접 쓰세요 "
+        "(예: 카톡 화면이 필요하면 '한국인이 메신저 앱에서 음악 파일을 받은 폰 화면을 보는 모습')"
     )
     real_screenshot_asset_id: str | None = Field(
         default=None,
         description="제공된 실제 앱 스크린샷 목록 중 이 슬라이드에 쓸 것의 id. 적절한 게 있는 "
         "슬라이드 최대 1~2개에만 지정하고, 나머지는 null로 두어 AI 생성 이미지를 쓰게 할 것",
     )
+
+
+class PhotoPlan(BaseModel):
+    """포토 아트디렉터 산출물 - 각 장의 '사진'만 책임진다(틀/타이포는 레이아웃 디자이너 담당)."""
+
+    slides: list[PhotoSlide] = Field(
+        description="creative_brief.slide_topics와 정확히 같은 개수·순서로 대응하는 이미지 프롬프트 목록"
+    )
+
+
+class LayoutSlide(BaseModel):
     layout_name: str = Field(
         description="이 슬라이드에 쓸 카드 틀의 이름. 아래 제공되는 '틀 라이브러리'에서 고르면 "
         "그 이름을 그대로 쓰고, 어울리는 게 없어 여러 틀을 조합해 새로 만들었다면 새 이름을 지어 "
@@ -96,10 +123,51 @@ class VisualSlide(BaseModel):
     )
 
 
-class VisualPlan(BaseModel):
-    slides: list[VisualSlide] = Field(
-        description="creative_brief.slide_topics와 정확히 같은 개수·순서로 대응하는 이미지 프롬프트 목록"
+class LayoutPlan(BaseModel):
+    """레이아웃 디자이너 산출물 - 장마다 어떤 틀로 조판할지만 결정한다."""
+
+    slides: list[LayoutSlide] = Field(
+        description="creative_brief.slide_topics와 정확히 같은 개수·순서로 대응하는 카드 틀 목록"
     )
+
+
+class QaIssue(BaseModel):
+    slide_index: int = Field(description="문제가 있는 장 번호(1부터)")
+    severity: Literal["block", "warn"] = Field(
+        description="block=이대로 CEO에게 올리면 안 됨(글자 잘림/판독 불가/브랜드 위반), "
+        "warn=아쉽지만 게시 가능"
+    )
+    issue: str = Field(description="무엇이 문제인지 한 문장")
+    fix: Literal["shrink_headline", "shorten_headline", "add_text_panel", "move_text", "none"] = Field(
+        description="코드가 자동으로 적용할 수 있는 교정 방법. shrink_headline=제목 한 단계 축소, "
+        "shorten_headline=suggested_headline으로 교체, add_text_panel=글자 뒤에 판 깔기(대비 확보), "
+        "move_text=글자 위치를 반대편으로, none=자동 교정 불가"
+    )
+    suggested_headline: str = Field(
+        default="", description="fix=shorten_headline일 때만. 같은 뜻을 더 짧게 쓴 제목"
+    )
+
+
+class QaReport(BaseModel):
+    """브랜드 QA 산출물 - 완성된 카드 이미지를 실제로 보고 내리는 검수 결과."""
+
+    verdict: Literal["pass", "fix"] = Field(description="pass=그대로 CEO 결재로, fix=자동 교정 후 재검토")
+    issues: list[QaIssue] = Field(default_factory=list)
+    summary: str = Field(description="CEO 결재 카드에 함께 보여줄 검수 소견 1~2문장")
+
+
+class CampaignPlan(BaseModel):
+    """퍼포먼스 마케터 산출물 - 성과 데이터를 근거로 '이번엔 무엇을 누구에게' 정한다.
+
+    입사 예정(onboarding) 상태라 기본적으로는 실행되지 않는다 - CEO가 직원 명단에서
+    입사시키면 그때부터 마케팅 디렉터 앞단에 붙는다."""
+
+    product: str = Field(description="이번에 홍보할 제품 - 지난 성과와 게시 간격을 근거로 선택")
+    channel: Literal["instagram", "facebook", "tiktok", "threads"]
+    objective: str = Field(description="이번 게시물의 목표 한 줄(예: 신규 설치 유도 / 기존 사용자 재방문)")
+    target_audience: str = Field(description="구체적인 타깃 - 연령·상황·불편을 포함해 한 문장")
+    hook_angle: str = Field(description="어떤 각도로 후킹할지 - 지난 회차와 겹치지 않게")
+    rationale: str = Field(description="왜 이 결정인지, 어떤 데이터/이력을 근거로 삼았는지")
 
 
 class DirectorReview(BaseModel):

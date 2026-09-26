@@ -1,4 +1,5 @@
 import json
+import logging
 from functools import lru_cache
 from typing import Any
 
@@ -8,6 +9,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from app.config import settings
 from app.db.ai_usage import log_ai_usage
 from app.tools.ai.llm.base import Message, SchemaT
+
+logger = logging.getLogger(__name__)
 
 _ROLE_TO_MESSAGE_CLS: dict[str, type[BaseMessage]] = {
     "system": SystemMessage,
@@ -41,6 +44,13 @@ def _to_lc_messages(messages: list[Message]) -> list[BaseMessage]:
         cls = _ROLE_TO_MESSAGE_CLS.get(m.role, HumanMessage)
         if m.role == "system":
             content = [{"type": "text", "text": m.content, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+        elif m.images:
+            # 이미지 + 텍스트 멀티모달 메시지(브랜드 QA 검수용). 이미지를 먼저 놓아야 모델이
+            # "이 그림들에 대해" 답하는 맥락으로 읽는다.
+            content = [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}}
+                for img in m.images
+            ] + [{"type": "text", "text": m.content}]
         else:
             content = m.content
         lc_messages.append(cls(content=content))
@@ -77,6 +87,31 @@ def _recover_from_malformed_tool_call(raw: Any, schema: type[SchemaT]) -> dict |
             continue
         return args
     return None
+
+
+def _recover_from_text(raw: Any, schema: type[SchemaT]) -> dict | None:
+    """도구 호출 대신 본문 텍스트로 JSON을 뱉은 경우를 구제한다.
+
+    Claude가 이미지가 포함된 요청에서 with_structured_output의 도구를 호출하지 않고 그냥
+    JSON 텍스트로 답하는 경우가 실측으로 확인됐다(브랜드 QA에서 매번 재현). 그대로 두면
+    파싱 실패로 Gemini 폴백까지 타서 같은 작업에 두 번 과금된다."""
+    text = _content_to_text(getattr(raw, "content", "") if raw else "")
+    if not text:
+        return None
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        candidate = json.loads(text[start : end + 1])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(candidate, dict):
+        return None
+    try:
+        schema.model_validate(candidate)
+    except Exception:
+        return None
+    return candidate
 
 
 def _content_to_text(content) -> str:
@@ -146,4 +181,15 @@ class ClaudeLLMProvider:
         parsed = result.get("parsed")
         if parsed is None:
             parsed = _recover_from_malformed_tool_call(raw, schema)
+        if parsed is None:
+            parsed = _recover_from_text(raw, schema)
+        if parsed is None:
+            # 여기서 실패하면 폴백 체인이 Gemini로 넘긴다 - 그 전에 무엇이 왔는지 남겨야
+            # 원인을 볼 수 있다(실측: 이미지가 붙은 브랜드 QA 요청에서 반복 발생, Claude가
+            # 도구 호출 대신 텍스트로 답해 parsed가 None이 됨 → 두 벤더에 이중 과금됨).
+            logger.warning(
+                "Claude 구조화 출력 파싱 실패(%s) - 응답 앞부분: %s",
+                schema.__name__,
+                _content_to_text(getattr(raw, "content", ""))[:300],
+            )
         return schema.model_validate(parsed)

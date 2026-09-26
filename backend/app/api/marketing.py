@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.db.supabase_client import get_supabase
+from app.services.card_render import brand_color_of, fetch_image_bytes, render_slide
 from app.tools.github_benchmarks import fetch_benchmark_content, list_benchmark_filenames
 
 router = APIRouter(prefix="/marketing", tags=["marketing"])
@@ -273,61 +274,16 @@ class PreviewIn(SlideRenderIn):
     format: str = "card_news"
 
 
-async def _fetch_image_bytes(url: str | None) -> bytes:
-    """원본 사진을 공개 URL에서 내려받는다. 못 받으면 빈 bytes - layout_engine이 사진 없는
-    레이아웃(photo_style="none")과 같은 경로로 처리하므로 편집기가 죽지는 않는다."""
-    if not url:
-        return b""
-    import httpx
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        try:
-            resp = await client.get(url)
-        except Exception:
-            return b""
-    return resp.content if resp.status_code == 200 else b""
-
-
-def _brand_color_of(product: str) -> tuple[int, int, int]:
-    from app.graphs.workers._marketing_shared import canonical_product, fetch_products, hex_to_rgb
-    from app.tools.ai.image.card_renderer import DEFAULT_BRAND
-
-    row = fetch_products().get(canonical_product(product)) or {}
-    return hex_to_rgb(row.get("brand_color")) or DEFAULT_BRAND
-
-
-def _render_slide(
-    slide: dict, product: str, page_label: str | None, brand: tuple[int, int, int], fmt: str, photo: bytes
-) -> bytes:
-    from app.tools.ai.image.card_renderer import render_comic_panel
-    from app.tools.ai.image.layout_engine import render_composed
-
-    if fmt == "instatoon":
-        # 인스타툰은 AI가 그린 컷 그림 위에 말풍선/자막만 다시 얹는다(레이아웃 spec은 쓰지 않음).
-        return render_comic_panel(
-            photo, slide.get("headline", ""), slide.get("subtext", ""), product, page_label, brand
-        )
-    return render_composed(
-        photo,
-        slide.get("headline", ""),
-        slide.get("subtext", ""),
-        product,
-        page_label,
-        brand,
-        spec=slide.get("layout_spec") or {},
-    )
-
-
 @router.post("/render-preview")
 async def render_preview(payload: PreviewIn) -> dict:
     """문구/틀을 바꾼 카드 한 장을 AI 호출 없이 즉시 다시 그려 미리보기로 돌려준다(비용 0).
     프론트 편집기가 입력이 바뀔 때마다 호출하므로 절대 AI를 부르지 않는다."""
-    photo = await _fetch_image_bytes(payload.source_image_url)
-    image = _render_slide(
+    photo = await fetch_image_bytes(payload.source_image_url)
+    image = render_slide(
         payload.model_dump(),
         payload.product,
         payload.page_label,
-        _brand_color_of(payload.product),
+        brand_color_of(payload.product),
         payload.format,
         photo,
     )
@@ -376,7 +332,7 @@ async def edit_marketing_post(approval_id: str, payload: PostEditIn) -> dict:
 
     product = post.get("product") or ""
     fmt = post.get("format", "card_news")
-    brand = _brand_color_of(product)
+    brand = brand_color_of(product)
     total = len(slides)
 
     new_slides: list[dict] = []
@@ -400,8 +356,8 @@ async def edit_marketing_post(approval_id: str, payload: PostEditIn) -> dict:
                 detail=f"{i + 1}번째 장은 편집기 도입 전에 만들어져 원본 사진이 없습니다 - "
                 "'사진만 다시 생성'을 먼저 눌러주세요",
             )
-        photo = await _fetch_image_bytes(merged.get("source_image_url"))
-        card = _render_slide(merged, product, f"{i + 1}/{total}", brand, fmt, photo)
+        photo = await fetch_image_bytes(merged.get("source_image_url"))
+        card = render_slide(merged, product, f"{i + 1}/{total}", brand, fmt, photo)
         image_urls.append(upload_marketing_image(card))
         new_slides.append(merged)
 

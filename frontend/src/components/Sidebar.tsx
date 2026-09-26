@@ -1,8 +1,9 @@
-export type ViewKey = "dashboard" | "workOrders" | "appManagement" | "marketingBenchmarks";
+export type ViewKey = "dashboard" | "workOrders" | "employees" | "appManagement" | "marketingBenchmarks";
 
 const items: { key: ViewKey; label: string }[] = [
   { key: "dashboard", label: "Dashboard" },
   { key: "workOrders", label: "업무 지시" },
+  { key: "employees", label: "직원" },
   { key: "appManagement", label: "앱관리" },
   { key: "marketingBenchmarks", label: "마케팅 리서치" },
 ];

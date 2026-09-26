@@ -20,6 +20,18 @@ def _split_system_and_prompt(messages: list[Message]) -> tuple[str | None, str]:
     return ("\n\n".join(system_parts) or None, "\n\n".join(user_parts))
 
 
+def _contents(messages: list[Message], prompt: str) -> list:
+    """이미지가 붙은 메시지가 있으면 멀티모달 contents로 만든다(브랜드 QA 검수용)."""
+    import base64
+
+    parts = [
+        types.Part.from_bytes(data=base64.b64decode(img), mime_type="image/png")
+        for m in messages
+        for img in m.images
+    ]
+    return [*parts, prompt] if parts else prompt
+
+
 def _log(usage, thread_id: str | None, agent_name: str | None) -> None:
     log_ai_usage(
         thread_id=thread_id,
@@ -50,7 +62,7 @@ class GeminiLLMProvider:
         system, prompt = _split_system_and_prompt(messages)
         response = await _client().aio.models.generate_content(
             model=settings.gemini_model,
-            contents=prompt,
+            contents=_contents(messages, prompt),
             config=types.GenerateContentConfig(system_instruction=system),
         )
         _log(response.usage_metadata, thread_id, agent_name)
@@ -67,7 +79,7 @@ class GeminiLLMProvider:
         system, prompt = _split_system_and_prompt(messages)
         response = await _client().aio.models.generate_content(
             model=settings.gemini_model,
-            contents=prompt,
+            contents=_contents(messages, prompt),
             config=types.GenerateContentConfig(
                 system_instruction=system,
                 response_mime_type="application/json",

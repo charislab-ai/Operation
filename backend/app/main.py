@@ -13,6 +13,7 @@ from app.api import (
     audit,
     auth,
     directives,
+    employees,
     health,
     marketing,
     products,
@@ -70,6 +71,7 @@ app.include_router(directives.router, dependencies=protected)
 app.include_router(approvals.router, dependencies=protected)
 app.include_router(marketing.router, dependencies=protected)
 app.include_router(products.router, dependencies=protected)
+app.include_router(employees.router, dependencies=protected)
 # agents.router는 REST(/status)와 WebSocket(/ws)이 섞여있어 라우터 전체에 일괄 dependencies를
 # 걸지 않고 각 엔드포인트에서 개별적으로 인증한다(app/api/agents.py 참고) - WS는 브라우저가
 # 커스텀 헤더를 못 보내 쿼리파라미터 토큰을 쓰는데, 라우터 레벨 Depends와 섞으면 동작이 불확실함

@@ -18,6 +18,10 @@ interface ProductFormState {
   brand_color: string;
   description: string;
   mascot_prompt: string;
+  tone_of_voice: string;
+  target_audience: string;
+  key_messages: string;
+  banned_words: string;
 }
 
 const EMPTY_FORM: ProductFormState = {
@@ -26,6 +30,10 @@ const EMPTY_FORM: ProductFormState = {
   brand_color: "",
   description: "",
   mascot_prompt: "",
+  tone_of_voice: "",
+  target_audience: "",
+  key_messages: "",
+  banned_words: "",
 };
 
 function toFormState(p: ProductOut): ProductFormState {
@@ -35,6 +43,10 @@ function toFormState(p: ProductOut): ProductFormState {
     brand_color: p.brand_color ?? "",
     description: p.description ?? "",
     mascot_prompt: p.mascot_prompt ?? "",
+    tone_of_voice: p.tone_of_voice ?? "",
+    target_audience: p.target_audience ?? "",
+    key_messages: p.key_messages ?? "",
+    banned_words: p.banned_words ?? "",
   };
 }
 
@@ -512,6 +524,49 @@ export default function AppManagementView() {
                         className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200"
                       />
                     </label>
+                    {/* 브랜드북 - 여기 적어두면 카피라이터·소셜에디터·포토AD·레이아웃 디자이너·
+                        브랜드 QA가 전부 이 값을 지킨다(매번 톤을 새로 지어내지 않게 하는 장치) */}
+                    <div className="mt-2 rounded border border-slate-800 bg-slate-950/60 p-2">
+                      <div className="mb-1.5 text-xs font-medium text-slate-400">
+                        브랜드북 — 직원 전원이 이 기준을 지킵니다
+                      </div>
+                      <label className="text-xs text-slate-500">
+                        톤앤보이스
+                        <input
+                          value={infoForm.tone_of_voice}
+                          onChange={(e) => setInfoForm({ ...infoForm, tone_of_voice: e.target.value })}
+                          placeholder="예: 친근한 반말 대신 편한 존댓말, 과장 없이 담백하게"
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+                        />
+                      </label>
+                      <label className="mt-1.5 block text-xs text-slate-500">
+                        핵심 타깃
+                        <input
+                          value={infoForm.target_audience}
+                          onChange={(e) => setInfoForm({ ...infoForm, target_audience: e.target.value })}
+                          placeholder="예: 20~30대 아이폰 사용자, 벨소리를 직접 만들고 싶은 사람"
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+                        />
+                      </label>
+                      <label className="mt-1.5 block text-xs text-slate-500">
+                        핵심 메시지
+                        <input
+                          value={infoForm.key_messages}
+                          onChange={(e) => setInfoForm({ ...infoForm, key_messages: e.target.value })}
+                          placeholder="예: 내 노래를 3분 만에 내 벨소리로"
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+                        />
+                      </label>
+                      <label className="mt-1.5 block text-xs text-slate-500">
+                        쓰면 안 되는 표현
+                        <input
+                          value={infoForm.banned_words}
+                          onChange={(e) => setInfoForm({ ...infoForm, banned_words: e.target.value })}
+                          placeholder="예: 무료, 최고, 1위 같은 과장 표현"
+                          className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 placeholder:text-slate-600"
+                        />
+                      </label>
+                    </div>
                     <label className="text-xs text-slate-500">
                       인스타툰 마스코트 캐릭터 묘사 (선택, 비워두면 기본 스타일로 생성)
                       <textarea

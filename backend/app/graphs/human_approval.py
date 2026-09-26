@@ -19,6 +19,9 @@ def _marketing_payload(state: OSState) -> dict:
         "slides": post.get("slides", []),
         "image_urls": post.get("image_urls", []),
         "director_notes": post.get("director_notes"),
+        # 브랜드 QA가 완성 카드를 직접 보고 남긴 검수 소견 - CEO가 결재 전에 같이 본다.
+        "qa_summary": (state.get("qa_report") or {}).get("summary"),
+        "qa_issues": (state.get("qa_report") or {}).get("issues", []),
     }
 
 
@@ -74,12 +77,40 @@ _REVISION_RESTART_NODE: dict[ApprovalKind, str] = {
 }
 
 
+# 보완 사유에서 특정 직원을 지목했을 때 그 직원만 다시 일하도록 보내는 노드.
+# Why: "카피라이터, 1장 제목만 더 세게"처럼 한 사람에게 내리는 보완인데도 예전엔 브리핑부터
+# 전원이 다시 돌아 이미지까지 전부 새로 생성됐다(이미지 3~5장 비용이 그대로 재발생). 지목된
+# 직원만 다시 돌리면 나머지 산출물은 state에 그대로 남아 합성 때 재사용되고, 사진 지시문이
+# 안 바뀌었으므로 원본 사진도 재사용된다(marketing_director.py::_reusable_source → 이미지 비용 0).
+_SPECIALIST_NODES = {
+    "copywriter": "copywriter",
+    "social_editor": "social_editor",
+    "photo_art_director": "photo_art_director",
+    "layout_designer": "layout_designer",
+}
+
+
+def _marketing_revision_target(state: OSState) -> str:
+    from app.graphs.workers._marketing_shared import detect_addressee
+
+    note = state.get("revision_notes", {}).get("marketing") or ""
+    addressed = detect_addressee(note)
+    if not addressed:
+        return "marketing_director_brief"
+    # 이미 산출물이 있어야 그 사람만 다시 돌리는 게 의미가 있다(첫 실행이면 브리핑부터).
+    if not state.get("marketing_post"):
+        return "marketing_director_brief"
+    return _SPECIALIST_NODES.get(addressed["agent_key"], "marketing_director_brief")
+
+
 def make_route_after_approval(kind: ApprovalKind):
     def route(state: OSState) -> str:
         decision = state.get("decisions", {}).get(kind)
         if decision == "approved" and kind == "marketing":
             return "publish_worker"
         if decision == "revision":
+            if kind == "marketing":
+                return _marketing_revision_target(state)
             return _REVISION_RESTART_NODE[kind]
         return END
 

@@ -4,6 +4,7 @@ import Sidebar, { ViewKey } from "./components/Sidebar";
 import DirectiveBar from "./components/DirectiveBar";
 import DashboardView from "./views/Dashboard/DashboardView";
 import WorkOrdersView from "./views/WorkOrders/WorkOrdersView";
+import EmployeesView from "./views/Employees/EmployeesView";
 import AppManagementView from "./views/AppManagement/AppManagementView";
 import MarketingBenchmarksView from "./views/MarketingBenchmarks/MarketingBenchmarksView";
 import { getCurrentUser, loginWithGoogle, setSessionToken } from "./lib/api";
@@ -58,6 +59,7 @@ export default function App() {
         <main className="flex-1 overflow-auto">
           {active === "dashboard" && <DashboardView onNavigate={setActive} />}
           {active === "workOrders" && <WorkOrdersView />}
+          {active === "employees" && <EmployeesView />}
           {active === "appManagement" && <AppManagementView />}
           {active === "marketingBenchmarks" && <MarketingBenchmarksView />}
         </main>

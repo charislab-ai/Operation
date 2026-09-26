@@ -358,6 +358,10 @@ export interface ProductOut {
   ios_url: string | null;
   android_url: string | null;
   brand_color: string | null;
+  tone_of_voice?: string | null;
+  target_audience?: string | null;
+  key_messages?: string | null;
+  banned_words?: string | null;
   description: string | null;
   mascot_prompt: string | null;
   mascot_url: string | null;
@@ -388,7 +392,20 @@ export async function createProduct(
 
 export async function updateProduct(
   name: string,
-  patch: Partial<Pick<ProductOut, "ios_url" | "android_url" | "brand_color" | "description" | "mascot_prompt">>,
+  patch: Partial<
+    Pick<
+      ProductOut,
+      | "ios_url"
+      | "android_url"
+      | "brand_color"
+      | "description"
+      | "mascot_prompt"
+      | "tone_of_voice"
+      | "target_audience"
+      | "key_messages"
+      | "banned_words"
+    >
+  >,
 ): Promise<ProductOut> {
   const res = await fetch(`${API_BASE}/products/${encodeURIComponent(name)}`, {
     method: "PATCH",
@@ -629,4 +646,44 @@ export async function regenerateSlidePhoto(imagePrompt: string, threadId?: strin
   });
   if (!res.ok) throw new Error((await res.json()).detail ?? "regenerate failed");
   return (await res.json()).source_image_url as string;
+}
+
+// ── 직원 명단 ────────────────────────────────────────────────────────────────
+// 각 AI 에이전트는 직원으로 등록돼 있고, CEO가 이름을 지어줄 수 있다. 지시문에서 그 이름을
+// 부르면 해당 직원만 자기 지시로 받아들인다(백엔드 supervisor / addressing_note).
+
+export interface EmployeeOut {
+  id: string;
+  agent_key: string;
+  name: string;
+  title: string;
+  rank: string;
+  department: string;
+  responsibilities: string;
+  status: "active" | "onboarding" | "leave";
+  sort_order: number;
+  working: boolean;
+  current_task: string | null;
+  last_active_at: string | null;
+  runs_7d: number;
+  tokens_7d: number;
+}
+
+export async function listEmployees(): Promise<EmployeeOut[]> {
+  const res = await fetch(`${API_BASE}/employees`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "employee list failed");
+  return res.json();
+}
+
+export async function updateEmployee(
+  agentKey: string,
+  patch: Partial<Pick<EmployeeOut, "name" | "title" | "rank" | "responsibilities" | "status">>,
+): Promise<EmployeeOut> {
+  const res = await fetch(`${API_BASE}/employees/${agentKey}`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "employee update failed");
+  return res.json();
 }

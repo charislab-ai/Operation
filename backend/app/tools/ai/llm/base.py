@@ -8,6 +8,10 @@ SchemaT = TypeVar("SchemaT", bound=BaseModel)
 class Message(BaseModel):
     role: str  # "system" | "user" | "assistant"
     content: str
+    # 이 메시지에 함께 붙일 이미지(PNG base64). 브랜드 QA가 완성된 카드를 "직접 보고" 검수할 때
+    # 사용한다 - 텍스트만 오가던 구조에서는 렌더 결과(글자 잘림/대비 부족)를 아무도 확인할 수
+    # 없었다. 이미지를 지원하지 않는 provider(Claude CLI)는 폴백으로 넘긴다.
+    images: list[str] = []
 
 
 class LLMProvider(Protocol):

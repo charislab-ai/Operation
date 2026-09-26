@@ -27,6 +27,11 @@ class ProductOut(BaseModel):
     description: str | None
     mascot_prompt: str | None = None
     mascot_url: str | None = None
+    # 브랜드북 - 앱관리 화면에서 CEO가 정해두면 마케팅 직원 전원이 이 기준을 지킨다
+    tone_of_voice: str | None = None
+    target_audience: str | None = None
+    key_messages: str | None = None
+    banned_words: str | None = None
 
 
 class ProductUpdate(BaseModel):
@@ -35,6 +40,10 @@ class ProductUpdate(BaseModel):
     brand_color: str | None = None
     description: str | None = None
     mascot_prompt: str | None = None
+    tone_of_voice: str | None = None
+    target_audience: str | None = None
+    key_messages: str | None = None
+    banned_words: str | None = None
 
 
 class ProductCreate(BaseModel):

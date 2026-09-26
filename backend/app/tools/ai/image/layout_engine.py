@@ -198,7 +198,9 @@ def render_composed(
 
     tx = pad if spec.get("photo_area") != "left" else int(CANVAS * 0.56)
     if text_position == "top":
-        ty = pad + 62  # 상단 제품 뱃지 아래에서 시작(겹침 방지)
+        # 상단 제품 뱃지 아래에서 시작(겹침 방지). number/quote 장식은 제목 "위쪽"에 그려지므로
+        # 그만큼 더 내려야 뱃지를 덮지 않는다(브랜드 QA가 실물 카드에서 잡아낸 겹침 사고).
+        ty = pad + 62 + (110 if accent in ("number", "quote") else 0)
     elif text_position == "center":
         ty = (CANVAS - block_h) // 2
     else:

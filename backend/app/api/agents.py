@@ -8,16 +8,17 @@ from app.ws.manager import ConnectionManager
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
-KNOWN_AGENTS = [
-    "Supervisor",
-    "BizDevWorker",
-    "PMWorker",
-    "MarketingDirector",
-    "ContentStrategist",
-    "VisualDesigner",
-    "DevWorker",
-    "PublishWorker",
-]
+
+def known_agents() -> list[str]:
+    """추적할 에이전트 목록은 직원 명단(employees)에서 가져온다 - 조직이 바뀌면(직무 분할,
+    신규 입사) 코드 수정 없이 따라오게 하기 위함. 실패 시 빈 목록(화면만 비어 보일 뿐 동작엔 지장 없음)."""
+    try:
+        rows = get_supabase().table("employees").select("run_agent_name").order("sort_order").execute().data
+        return [r["run_agent_name"] for r in rows if r.get("run_agent_name")]
+    except Exception:
+        return []
+
+
 ACTIVE_WINDOW = timedelta(minutes=5)
 
 manager = ConnectionManager()
@@ -31,7 +32,7 @@ def _within_window(started_at_str: str) -> bool:
 def compute_agent_status() -> list[dict]:
     supabase = get_supabase()
     result = []
-    for agent_name in KNOWN_AGENTS:
+    for agent_name in known_agents():
         runs = (
             supabase.table("agent_runs")
             .select("*")

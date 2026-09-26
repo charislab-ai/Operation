@@ -79,6 +79,13 @@ def _log_cli_usage(response: dict, thread_id: str | None, agent_name: str | None
     )
 
 
+def _require_text_only(messages: list[Message]) -> None:
+    """CLI 경로는 표준입력으로 텍스트만 넘기므로 이미지가 붙은 요청(브랜드 QA 검수)은 처리할 수
+    없다 - 조용히 이미지를 버리고 "보지 않은 채" 판정하면 안 되므로, 폴백(API)으로 넘긴다."""
+    if any(m.images for m in messages):
+        raise ClaudeCLIUnavailable("claude CLI는 이미지 입력을 지원하지 않음 - API로 폴백")
+
+
 class ClaudeCLIProvider:
     """Claude Code CLI(구독 플랜)를 통해 추론한다. 실패/한도초과 시 ClaudeCLIUnavailable을 던진다."""
 
@@ -89,6 +96,7 @@ class ClaudeCLIProvider:
         thread_id: str | None = None,
         agent_name: str | None = None,
     ) -> str:
+        _require_text_only(messages)
         system, prompt = _split_system_and_prompt(messages)
         response = await _run_cli(system, prompt)
         _log_cli_usage(response, thread_id, agent_name)
@@ -102,6 +110,7 @@ class ClaudeCLIProvider:
         thread_id: str | None = None,
         agent_name: str | None = None,
     ) -> SchemaT:
+        _require_text_only(messages)
         system, prompt = _split_system_and_prompt(messages)
         response = await _run_cli(system, prompt, json_schema=schema.model_json_schema())
         _log_cli_usage(response, thread_id, agent_name)
