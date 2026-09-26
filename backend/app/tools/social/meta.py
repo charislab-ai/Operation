@@ -90,6 +90,25 @@ class MetaSocialPoster:
             permalink=await self._fetch_permalink(publish_data["id"], token),
         )
 
+    async def post_comment(self, post_id: str, message: str) -> str | None:
+        """게시물에 댓글을 단다 - 실패하면 None(게시 자체는 이미 성공이므로 막지 않는다).
+
+        Why: 인스타그램은 캡션 안의 URL이 클릭되지 않아서, 다운로드 링크는 "첫 댓글"에 다는 게
+        실무 표준이다(프로필 링크 안내와 병행). 페이스북은 본문 링크가 그대로 눌리지만, 댓글에
+        한 번 더 달아두면 공유 시에도 링크가 따라간다.
+        """
+        token = settings.meta_page_access_token
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                res = await client.post(
+                    f"{GRAPH_API_BASE}/{post_id}/comments",
+                    data={"message": message, "access_token": token},
+                )
+            data = res.json()
+            return data.get("id")
+        except Exception:
+            return None
+
     async def _fetch_permalink(self, media_id: str, token: str) -> str | None:
         """게시된 인스타그램 미디어의 공개 링크를 가져온다 - CEO가 결과를 바로 확인할 수 있어야
         하므로. 실패해도 게시 자체는 성공이므로 None만 돌려주고 넘어간다."""
