@@ -154,6 +154,7 @@ export default function PostPreviewModal({
           layout_name: String(s.layout_name ?? ""),
           layout_spec: (s.layout_spec as Record<string, unknown>) ?? {},
           source_image_url: (s.source_image_url as string) ?? null,
+          image_prompt: String(s.image_prompt ?? ""),
         })),
       });
       setImages((Array.isArray(saved.image_urls) ? saved.image_urls : []) as string[]);

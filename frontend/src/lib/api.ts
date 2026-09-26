@@ -587,6 +587,7 @@ export interface SlideEdit {
   layout_name?: string;
   layout_spec?: Record<string, unknown>;
   source_image_url?: string | null;
+  image_prompt?: string;
 }
 
 export async function renderSlidePreview(input: {

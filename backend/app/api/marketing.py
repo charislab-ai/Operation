@@ -264,6 +264,7 @@ class SlideRenderIn(BaseModel):
     layout_name: str = ""
     layout_spec: dict = {}
     source_image_url: str | None = None
+    image_prompt: str = ""  # 사진 재생성용 지시문 - 편집 저장 시 함께 보관한다
 
 
 class PreviewIn(SlideRenderIn):
@@ -381,12 +382,15 @@ async def edit_marketing_post(approval_id: str, payload: PostEditIn) -> dict:
     new_slides: list[dict] = []
     image_urls: list[str] = []
     for i, (existing, edit) in enumerate(zip(slides, payload.slides)):
-        merged = {**existing, **{k: v for k, v in edit.model_dump().items() if v not in (None, "")}}
-        # layout_spec은 빈 dict도 "안 바꿈"으로 취급해야 하므로 위 필터에 걸려 걸러진다 -
-        # 명시적으로 넘어온 경우만 교체한다.
-        if edit.layout_spec:
-            merged["layout_spec"] = edit.layout_spec
-        merged["subtext"] = edit.subtext  # 보조문구는 빈 문자열(삭제)도 유효한 편집
+        # 비워서 보낸 값은 "안 바꿈"으로 보고 기존 값을 유지한다. 단 헤드라인/보조문구는
+        # 빈 문자열(= 지우기)도 유효한 편집이라 항상 그대로 반영한다.
+        merged = dict(existing)
+        merged["headline"] = edit.headline
+        merged["subtext"] = edit.subtext
+        for key in ("layout_name", "layout_spec", "source_image_url", "image_prompt"):
+            value = getattr(edit, key)
+            if value:
+                merged[key] = value
         needs_photo = fmt == "instatoon" or (merged.get("layout_spec") or {}).get("photo_style", "full") != "none"
         if needs_photo and not merged.get("source_image_url"):
             # 편집기 도입(source_image_url 보관) 이전에 만들어진 카드 - 원본 사진이 없어서 다시
