@@ -5,18 +5,21 @@ import {
   deleteDirective,
   deleteDirectiveMedia,
   getDirectiveDetail,
+  getAiBudget,
   getAutoSchedule,
   listDirectives,
   pauseDirective,
   resumeDirective,
   terminateDirective,
   updateDirective,
+  updateAiBudget,
   updateAutoSchedule,
   updateDirectiveMedia,
   uploadDirectiveMedia,
   type AgentRunRow,
   type ApprovalRow,
   type DirectiveDetail,
+  type AiBudgetOut,
   type AutoScheduleOut,
   type DirectiveListItem,
 } from "../../lib/api";
@@ -148,9 +151,20 @@ export default function WorkOrdersView() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [autoSchedule, setAutoSchedule] = useState<AutoScheduleOut | null>(null);
 
+  const [budget, setBudget] = useState<AiBudgetOut | null>(null);
+
   useEffect(() => {
     getAutoSchedule().then(setAutoSchedule).catch(() => undefined);
+    getAiBudget().then(setBudget).catch(() => undefined);
   }, []);
+
+  const saveBudget = async (patch: Partial<AiBudgetOut>) => {
+    try {
+      setBudget(await updateAiBudget(patch));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
 
   const saveAutoSchedule = async (patch: Partial<AutoScheduleOut>) => {
     try {
@@ -827,6 +841,51 @@ export default function WorkOrdersView() {
       </div>
 
       {error && <div className="text-sm text-red-400">{error}</div>}
+
+      {budget && (
+        <div
+          className={`flex flex-wrap items-center gap-4 rounded-lg border p-4 ${
+            budget.enabled ? "border-slate-800 bg-slate-900" : "border-red-900 bg-red-950/30"
+          }`}
+        >
+          <div className="text-sm font-medium text-slate-200">AI 사용 한도</div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-xs text-slate-500">오늘 이미지</span>
+            <span
+              className={
+                budget.used_images_today >= budget.daily_image_limit ? "text-red-400" : "text-slate-200"
+              }
+            >
+              {budget.used_images_today} / {budget.daily_image_limit}장
+            </span>
+            <select
+              value={budget.daily_image_limit}
+              onChange={(e) => saveBudget({ daily_image_limit: Number(e.target.value) })}
+              className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs"
+            >
+              {[10, 20, 40, 80, 200].map((n) => (
+                <option key={n} value={n}>
+                  상한 {n}장
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="text-xs text-slate-500">
+            지시 1건당 최대 {budget.per_thread_image_limit}장 · 오늘 토큰{" "}
+            {budget.used_tokens_today.toLocaleString()} / {budget.daily_token_limit.toLocaleString()}
+          </div>
+          <button
+            onClick={() => saveBudget({ enabled: !budget.enabled })}
+            className={`ml-auto rounded-md px-3 py-1.5 text-sm ${
+              budget.enabled
+                ? "border border-red-900 text-red-400 hover:bg-red-950"
+                : "bg-red-800 text-white"
+            }`}
+          >
+            {budget.enabled ? "🛑 AI 비상 정지" : "정지 해제 (현재 전면 차단 중)"}
+          </button>
+        </div>
+      )}
 
       {autoSchedule && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-900 p-4">

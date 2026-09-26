@@ -6,6 +6,7 @@ from app.tools.ai.image.base import ImageGenProvider
 from app.tools.ai.image.dalle import DalleImageGenProvider
 from app.tools.ai.image.gemini_image import GeminiImageGenProvider
 from app.tools.ai.image.mock import MockImageGenProvider
+from app.services.budget import assert_image_budget
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class ImageGenFallbackChain:
         self._label = label
 
     async def generate_bytes(self, prompt: str, *, thread_id=None, agent_name=None) -> bytes:
+        assert_image_budget(thread_id)  # 상한 초과면 여기서 차단(폭주 방지)
         try:
             return await self._primary.generate_bytes(prompt, thread_id=thread_id, agent_name=agent_name)
         except Exception:
@@ -30,6 +32,7 @@ class ImageGenFallbackChain:
             return await self._fallback.generate_bytes(prompt, thread_id=thread_id, agent_name=agent_name)
 
     async def edit_bytes(self, reference_bytes: bytes, prompt: str, *, thread_id=None, agent_name=None) -> bytes:
+        assert_image_budget(thread_id)  # 상한 초과면 여기서 차단(폭주 방지)
         try:
             return await self._primary.edit_bytes(
                 reference_bytes, prompt, thread_id=thread_id, agent_name=agent_name

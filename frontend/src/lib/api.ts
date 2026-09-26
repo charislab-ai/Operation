@@ -524,3 +524,30 @@ export async function updateAutoSchedule(
   if (!res.ok) throw new Error((await res.json()).detail ?? "auto schedule update failed");
   return res.json();
 }
+
+export interface AiBudgetOut {
+  enabled: boolean;
+  daily_image_limit: number;
+  daily_token_limit: number;
+  per_thread_image_limit: number;
+  used_images_today: number;
+  used_tokens_today: number;
+}
+
+export async function getAiBudget(): Promise<AiBudgetOut> {
+  const res = await fetch(`${API_BASE}/marketing/ai-budget`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "ai budget fetch failed");
+  return res.json();
+}
+
+export async function updateAiBudget(
+  patch: Partial<Pick<AiBudgetOut, "enabled" | "daily_image_limit" | "daily_token_limit" | "per_thread_image_limit">>,
+): Promise<AiBudgetOut> {
+  const res = await fetch(`${API_BASE}/marketing/ai-budget`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "ai budget update failed");
+  return res.json();
+}

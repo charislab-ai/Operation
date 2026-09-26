@@ -181,3 +181,41 @@ def update_auto_schedule(payload: AutoScheduleUpdate) -> dict:
         raise HTTPException(status_code=400, detail="발행 주기는 1시간 이상이어야 합니다")
     result = get_supabase().table("marketing_auto_schedule").update(updates).eq("id", 1).execute()
     return result.data[0]
+
+
+class AiBudgetOut(BaseModel):
+    enabled: bool
+    daily_image_limit: int
+    daily_token_limit: int
+    per_thread_image_limit: int
+    used_images_today: int
+    used_tokens_today: int
+
+
+class AiBudgetUpdate(BaseModel):
+    enabled: bool | None = None
+    daily_image_limit: int | None = None
+    daily_token_limit: int | None = None
+    per_thread_image_limit: int | None = None
+
+
+@router.get("/ai-budget", response_model=AiBudgetOut)
+def get_ai_budget() -> dict:
+    """AI 사용량 상한 + 오늘 사용량 - 버그로 크레딧이 폭주하는 걸 막는 안전장치 상태."""
+    from app.services.budget import load_budget, usage_today
+
+    budget = load_budget()
+    used = usage_today()
+    return {**budget, "used_images_today": used["images"], "used_tokens_today": used["tokens"]}
+
+
+@router.patch("/ai-budget", response_model=AiBudgetOut)
+def update_ai_budget(payload: AiBudgetUpdate) -> dict:
+    from app.services.budget import usage_today
+
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="수정할 값이 없습니다")
+    row = get_supabase().table("ai_budget").update(updates).eq("id", 1).execute().data[0]
+    used = usage_today()
+    return {**row, "used_images_today": used["images"], "used_tokens_today": used["tokens"]}

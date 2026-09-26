@@ -6,6 +6,7 @@ from app.tools.ai.llm.base import LLMProvider, Message, SchemaT
 from app.tools.ai.llm.claude import ClaudeLLMProvider
 from app.tools.ai.llm.claude_cli import ClaudeCLIProvider, ClaudeCLIUnavailable
 from app.tools.ai.llm.gemini import GeminiLLMProvider
+from app.services.budget import assert_llm_budget
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ class LLMFallbackChain:
         thread_id: str | None = None,
         agent_name: str | None = None,
     ) -> str:
+        assert_llm_budget()  # 상한 초과면 여기서 차단(폭주 방지)
         try:
             return await self._cli.complete(messages, thread_id=thread_id, agent_name=agent_name)
         except ClaudeCLIUnavailable:
@@ -56,6 +58,7 @@ class LLMFallbackChain:
         thread_id: str | None = None,
         agent_name: str | None = None,
     ) -> SchemaT:
+        assert_llm_budget()  # 상한 초과면 여기서 차단(폭주 방지)
         try:
             return await self._cli.complete_structured(
                 messages, schema, thread_id=thread_id, agent_name=agent_name
