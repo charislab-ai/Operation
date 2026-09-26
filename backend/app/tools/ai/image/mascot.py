@@ -6,8 +6,10 @@
 """
 
 import uuid
+from io import BytesIO
 
 import httpx
+from PIL import Image
 
 from app.db.supabase_client import get_supabase
 from app.tools.ai.image import get_instatoon_image_gen
@@ -23,6 +25,24 @@ _DEFAULT_PROMPT_TEMPLATE = (
     "emotion. No text, no logo, no watermark, no drop shadow. Primary color should be inspired by "
     "the hex color {brand_color}. App context: {description}"
 )
+
+
+def _looks_blank(image_bytes: bytes) -> bool:
+    """거의 단색인 이미지(= 캐릭터가 없는 실패 생성물)인지 판정한다.
+
+    Why: 터치러쉬 마스코트로 "단색 보라 사각형"이 저장돼 있던 걸 실측으로 발견했다(생성 실패
+    또는 mock 이미지가 그대로 저장된 것으로 추정). 이걸 참조 이미지로 인스타툰을 그리면 캐릭터
+    없는 컷이 나온다. 저장 전과 사용 전 양쪽에서 걸러 같은 사고가 반복되지 않게 한다.
+    """
+    try:
+        img = Image.open(BytesIO(image_bytes)).convert("RGB").resize((64, 64))
+    except Exception:
+        return True  # 열리지도 않는 이미지면 쓸 수 없다
+    colors = img.getcolors(maxcolors=4096) or []
+    if not colors:
+        return False  # 색이 4096가지를 넘음 = 충분히 복잡한 그림
+    dominant = max(count for count, _ in colors)
+    return dominant / (64 * 64) > 0.92  # 한 색이 92% 이상이면 사실상 단색
 
 
 def _default_prompt(name: str, description: str | None, brand_color: str | None) -> str:
@@ -49,14 +69,20 @@ async def ensure_mascot(product_row: dict, *, force: bool = False) -> bytes:
         public_url = bucket.get_public_url(path)
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(public_url)
-        if resp.status_code == 200:
+        if resp.status_code == 200 and not _looks_blank(resp.content):
             return resp.content
-        # 버킷에서 지워졌거나 URL이 깨졌으면 아래에서 새로 생성해 복구한다.
+        # 버킷에서 지워졌거나(404) 단색 쓰레기 이미지면 아래에서 새로 생성해 복구한다.
 
     prompt = product_row.get("mascot_prompt") or _default_prompt(
         name, product_row.get("description"), product_row.get("brand_color")
     )
     image_bytes = await get_instatoon_image_gen().generate_bytes(prompt)
+    if _looks_blank(image_bytes):
+        # 실패 생성물을 마스코트로 박아두면 이후 모든 컷이 망가진다 - 저장하지 않고 즉시 알린다.
+        raise RuntimeError(
+            f"{name} 마스코트 생성 결과가 비어 있습니다(단색 이미지) - 저장하지 않았습니다. "
+            "이미지 생성 크레딧/설정을 확인한 뒤 앱관리에서 다시 생성해주세요."
+        )
     storage_path = f"mascots/{uuid.uuid4()}.png"
     bucket.upload(storage_path, image_bytes, {"content-type": "image/png"})
 
