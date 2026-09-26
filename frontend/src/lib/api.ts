@@ -727,3 +727,47 @@ export async function screenRecordingToShorts(
   if (!res.ok) throw new Error((await res.json()).detail ?? "screen recording failed");
   return (await res.json()).video_url as string;
 }
+
+// ── 게시 자료실 ──────────────────────────────────────────────────────────────
+// 만들어진 콘텐츠(문구/태그/이미지/영상)를 모아서 보고 내려받는다. 릴스는 CEO가 인스타 앱에서
+// 직접 올리며 음악을 고르기로 해서, 완성된 파일을 손에 넣을 수 있어야 한다.
+
+export interface LibraryItem {
+  approval_id: string;
+  thread_id: string;
+  product: string | null;
+  channel: string | null;
+  format: string | null;
+  status: string;
+  created_at: string;
+  caption: string | null;
+  hashtags: string[];
+  image_urls: string[];
+  video_url: string | null;
+  permalink: string | null;
+  director_notes: string | null;
+  qa_summary: string | null;
+}
+
+export async function listLibrary(limit = 50): Promise<LibraryItem[]> {
+  const res = await fetch(`${API_BASE}/marketing/library?limit=${limit}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "library load failed");
+  return res.json();
+}
+
+/** zip(이미지+영상+문구) 내려받기 - 인증 헤더가 필요해 fetch 후 blob으로 저장한다. */
+export async function downloadBundle(item: LibraryItem): Promise<void> {
+  const res = await fetch(`${API_BASE}/marketing/library/${item.approval_id}/bundle`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("다운로드 실패");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${item.product ?? "post"}_${item.created_at.slice(0, 10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

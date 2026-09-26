@@ -470,3 +470,126 @@ async def screen_recording_to_shorts(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {"video_url": upload_video(video)}
+
+
+# ---------------------------------------------------------------------------
+# 게시 자료실 - 만들어진 콘텐츠(문구/태그/이미지/영상)를 한곳에 모아 CEO가 보고 내려받는다.
+# Why: 릴스는 CEO가 인스타 앱에서 직접 올리며 음악을 고르기로 했다(인앱 인기 오디오는 앱에서
+# 올릴 때만 선택 가능하고 도달에 유리함). 그러려면 완성된 파일과 문구를 손에 넣을 수 있어야 한다.
+# ---------------------------------------------------------------------------
+
+
+class LibraryItem(BaseModel):
+    approval_id: str
+    thread_id: str
+    product: str | None
+    channel: str | None
+    format: str | None
+    status: str
+    created_at: str
+    caption: str | None
+    hashtags: list[str]
+    image_urls: list[str]
+    video_url: str | None
+    permalink: str | None  # 실제 게시했다면 그 링크
+    director_notes: str | None
+    qa_summary: str | None
+
+
+def _split_caption(caption: str | None) -> tuple[str, list[str]]:
+    """캡션 본문과 해시태그를 분리한다 - 인스타 앱에 붙여넣을 때 따로 쓰기 편하게."""
+    if not caption:
+        return "", []
+    tags = [w for w in caption.replace("\n", " ").split() if w.startswith("#")]
+    body_lines = [line for line in caption.splitlines() if not line.strip().startswith("#")]
+    return "\n".join(body_lines).strip(), tags
+
+
+@router.get("/library", response_model=list[LibraryItem])
+def list_library(limit: int = 50) -> list[dict]:
+    """만들어진 마케팅 콘텐츠 목록(최신순). 결재 상태와 무관하게 전부 보여준다."""
+    supabase = get_supabase()
+    rows = (
+        supabase.table("approvals")
+        .select("id, thread_id, status, payload, created_at")
+        .eq("target_type", "marketing_post")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+        .data
+    )
+    metrics = supabase.table("marketing_metrics").select("product, channel, permalink, metric_date").execute().data
+    latest_link: dict[tuple, str] = {}
+    for m in sorted(metrics, key=lambda x: x.get("metric_date") or ""):
+        if m.get("permalink"):
+            latest_link[(m.get("product"), m.get("channel"))] = m["permalink"]
+
+    items = []
+    for row in rows:
+        payload = row.get("payload") or {}
+        body, tags = _split_caption(payload.get("caption"))
+        items.append(
+            {
+                "approval_id": row["id"],
+                "thread_id": row["thread_id"],
+                "product": payload.get("product"),
+                "channel": payload.get("channel"),
+                "format": payload.get("format"),
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "caption": body,
+                "hashtags": tags,
+                "image_urls": payload.get("image_urls") or [],
+                "video_url": payload.get("video_url"),
+                "permalink": latest_link.get((payload.get("product"), payload.get("channel")))
+                if row["status"] == "approved"
+                else None,
+                "director_notes": payload.get("director_notes"),
+                "qa_summary": payload.get("qa_summary"),
+            }
+        )
+    return items
+
+
+@router.get("/library/{approval_id}/bundle")
+def download_bundle(approval_id: str):
+    """이미지·영상·문구·해시태그를 zip 하나로 내려받는다 - 인스타 앱에 올릴 때 이 파일만 있으면 된다."""
+    import io
+    import zipfile
+
+    import httpx as _httpx
+    from fastapi.responses import StreamingResponse
+
+    supabase = get_supabase()
+    rows = supabase.table("approvals").select("payload, created_at").eq("id", approval_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="콘텐츠를 찾을 수 없습니다")
+    payload = rows[0].get("payload") or {}
+    body, tags = _split_caption(payload.get("caption"))
+    product = payload.get("product") or "post"
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "게시문구.txt",
+            f"[{product} · {payload.get('channel')}]\n\n{body}\n\n{' '.join(tags)}\n",
+        )
+        if tags:
+            zf.writestr("해시태그.txt", " ".join(tags) + "\n")
+        with _httpx.Client(timeout=60) as client:
+            for i, url in enumerate(payload.get("image_urls") or [], start=1):
+                resp = client.get(url)
+                if resp.status_code == 200:
+                    zf.writestr(f"카드_{i:02d}.png", resp.content)
+            if payload.get("video_url"):
+                resp = client.get(payload["video_url"])
+                if resp.status_code == 200:
+                    zf.writestr("쇼츠.mp4", resp.content)
+    buf.seek(0)
+    stamp = (rows[0].get("created_at") or "")[:10]
+    filename = f"{product}_{stamp}.zip".replace(" ", "_")
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

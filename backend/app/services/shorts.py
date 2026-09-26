@@ -8,8 +8,9 @@ Why: 카드뉴스/인스타툰을 만들 때 이미지는 이미 다 있으므�
   1) 게시물 이미지들 → 켄번즈 줌 + 크로스페이드로 조립 (render_from_images)
   2) CEO가 올린 앱 화면 녹화 → 9:16으로 맞추고 브랜드 헤더/자막/CTA를 얹음 (render_from_video)
 
-오디오는 일부러 넣지 않는다 - 릴스/쇼츠는 앱 내 인기 오디오를 붙이는 쪽이 도달에 유리하고,
-외부 음원은 저작권 차단 위험이 있다. 게시할 때 앱에서 고르는 게 낫다.
+음악은 넣지 않는다 - CEO가 완성된 영상을 내려받아 인스타그램 앱에서 직접 올리면서 인기
+오디오를 고르기로 했다(인앱 음악은 앱에서 올릴 때만 선택 가능하고, 트렌드 오디오가 도달에
+유리하다). 그래서 이 서비스는 "음악만 빠진 완성본"을 만들고, 자료실에서 내려받게 한다.
 """
 
 import logging
@@ -96,15 +97,15 @@ def _brand_overlay(product: str, subtitle: str, brand: tuple[int, int, int], pro
     return layer
 
 
-def _encode(frames_dir: Path, out_path: Path) -> None:
-    subprocess.run(
-        [
-            _ffmpeg(), "-y", "-framerate", str(FPS), "-i", str(frames_dir / "f%05d.png"),
-            "-c:v", "libx264", "-preset", "medium", "-crf", "21",
-            "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out_path),
-        ],
-        check=True, capture_output=True,
-    )
+def _encode(frames_dir: Path, out_path: Path, audio: Path | None = None) -> None:
+    cmd = [_ffmpeg(), "-y", "-framerate", str(FPS), "-i", str(frames_dir / "f%05d.png")]
+    if audio:
+        cmd += ["-i", str(audio), "-c:a", "aac", "-b:a", "160k", "-shortest"]
+    cmd += [
+        "-c:v", "libx264", "-preset", "medium", "-crf", "21",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out_path),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
 
 
 def render_from_images(
@@ -178,6 +179,7 @@ def render_from_video(
     subtitle: str = "",
     brand: tuple[int, int, int] = DEFAULT_BRAND,
     seconds: int = MAX_RECORDING_SECONDS,
+    keep_original_audio: bool = True,
 ) -> bytes:
     """CEO가 올린 앱 화면 녹화를 쇼츠로 만든다.
 
@@ -197,16 +199,18 @@ def render_from_video(
             f"scale={W}:{H}:force_original_aspect_ratio=decrease,"
             f"pad={W}:{H}:(ow-iw)/2:(oh-ih)/2:color={pad_color},setsar=1"
         )
-        subprocess.run(
-            [
-                _ffmpeg(), "-y", "-t", str(seconds), "-i", str(src), "-i", str(overlay_path),
-                "-filter_complex", f"[0:v]{vf}[bg];[bg][1:v]overlay=0:0",
-                "-r", str(FPS), "-an",  # 오디오 제거(앱에서 인기 오디오를 붙이는 게 낫다)
+        cmd = [_ffmpeg(), "-y", "-t", str(seconds), "-i", str(src), "-i", str(overlay_path)]
+        filt = f"[0:v]{vf}[bg];[bg][1:v]overlay=0:0[v]"
+        maps = ["-map", "[v]"]
+        if keep_original_audio:
+            # 화면 녹화의 앱 소리/목소리는 살린다(CEO 본인 콘텐츠라 저작권 문제 없음).
+            # 배경음악은 넣지 않는다 - 게시할 때 인스타 앱에서 직접 고른다.
+            maps += ["-map", "0:a?"]
+        cmd += ["-filter_complex", filt, *maps, "-r", str(FPS), "-shortest",
+                "-c:a", "aac", "-b:a", "160k",
                 "-c:v", "libx264", "-preset", "medium", "-crf", "21",
-                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out),
-            ],
-            check=True, capture_output=True,
-        )
+                "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(out)]
+        subprocess.run(cmd, check=True, capture_output=True)
         return out.read_bytes()
     except subprocess.CalledProcessError as exc:
         raise ShortsError(f"영상 변환 실패: {exc.stderr.decode()[:300]}") from exc
