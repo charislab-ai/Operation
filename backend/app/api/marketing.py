@@ -398,3 +398,75 @@ async def regenerate_photo(payload: RegeneratePhotoIn) -> dict:
 
         raise HTTPException(status_code=502, detail=describe_error(exc)) from exc
     return {"source_image_url": upload_marketing_image(image)}
+
+
+# ---------------------------------------------------------------------------
+# 쇼츠/릴스 - 이미 만든 이미지를 재활용하거나(비용 0), CEO가 올린 앱 화면 녹화를 편집한다.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/posts/{approval_id}/shorts")
+async def regenerate_shorts(approval_id: str) -> dict:
+    """결재 대기 중인 게시물의 이미지를 세로 영상(쇼츠/릴스)으로 다시 만든다.
+
+    AI를 호출하지 않으므로 비용이 없다 - 편집기에서 문구/틀을 고친 뒤 영상도 새로 뽑을 때 쓴다.
+    """
+    from app.services.card_render import brand_color_of
+    from app.services.shorts import ShortsError, render_from_images, upload_video
+
+    supabase = get_supabase()
+    rows = supabase.table("approvals").select("id, status, target_type, payload").eq("id", approval_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="approval not found")
+    row = rows[0]
+    if row["target_type"] != "marketing_post":
+        raise HTTPException(status_code=400, detail="카드뉴스 결재 카드만 영상으로 만들 수 있습니다")
+
+    post = dict(row["payload"] or {})
+    try:
+        video = render_from_images(
+            post.get("image_urls") or [],
+            post.get("product") or "",
+            brand=brand_color_of(post.get("product") or ""),
+        )
+    except ShortsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    post["video_url"] = upload_video(video)
+    supabase.table("approvals").update({"payload": post}).eq("id", approval_id).execute()
+    return {"video_url": post["video_url"]}
+
+
+@router.post("/screen-recording")
+async def screen_recording_to_shorts(
+    product: str = Form(...),
+    subtitle: str = Form(""),
+    seconds: int = Form(20),
+    file: UploadFile = File(...),
+) -> dict:
+    """앱 화면 녹화를 올리면 브랜드 헤더·자막·CTA를 얹은 쇼츠로 만들어 돌려준다.
+
+    "실제로 쓰는 화면"이 앱 홍보에서 가장 설득력이 높아 별도 경로로 둔다 - CEO가 아이폰에서
+    녹화한 파일을 그대로 올리면 되고, AI는 전혀 쓰지 않는다.
+    """
+    from app.services.card_render import brand_color_of
+    from app.services.shorts import MAX_RECORDING_SECONDS, ShortsError, render_from_video, upload_video
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="영상 파일이 비어 있습니다")
+    if len(content) > 200 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="영상이 너무 큽니다(200MB 이하)")
+
+    try:
+        video = render_from_video(
+            content,
+            product,
+            subtitle=subtitle,
+            brand=brand_color_of(product),
+            seconds=max(3, min(seconds, MAX_RECORDING_SECONDS)),
+        )
+    except ShortsError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {"video_url": upload_video(video)}

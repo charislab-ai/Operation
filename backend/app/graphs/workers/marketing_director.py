@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 from langchain_core.runnables import RunnableConfig
 
@@ -23,6 +25,7 @@ from app.tools.ai.llm.base import Message
 from app.tools.github_benchmarks import fetch_latest_benchmarks
 
 llm = get_llm()
+logger = logging.getLogger(__name__)
 
 BRIEF_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. CEO의 지시와 (있다면) 제품 특징 문서를
 참고해서 홍보할 제품(product), 게시할 채널(channel: instagram|facebook|tiktok|threads), 콘텐츠
@@ -322,6 +325,18 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
     if hashtags:
         caption = f"{caption}\n\n{' '.join(hashtags)}"
 
+    # 쇼츠/릴스 - 이미 만든 이미지를 재활용하는 것이라 AI 비용이 0이다. 렌더링(CPU)만 하면
+    # 노출 채널이 하나 더 생긴다. 실패해도 게시물 자체는 유효하므로 조용히 건너뛴다.
+    video_url = None
+    try:
+        from app.services.shorts import render_from_images, upload_video
+
+        video_url = upload_video(
+            render_from_images(image_urls, brief["product"], brand=brand_color)
+        )
+    except Exception:
+        logger.exception("쇼츠 생성 실패 - 게시물은 그대로 진행")
+
     marketing_post = {
         "product": brief["product"],
         "channel": brief["channel"],
@@ -329,6 +344,7 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
         "caption": caption,
         "slides": merged_slides,
         "image_urls": image_urls,
+        "video_url": video_url,  # 쇼츠/릴스 - 없을 수도 있음(렌더 실패 시)
         "director_notes": review.director_notes,
     }
     finish_run(run_id, marketing_post)

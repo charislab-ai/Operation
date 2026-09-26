@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listLayouts,
+  regenerateShorts,
   regenerateSlidePhoto,
   renderSlidePreview,
   saveMarketingPost,
@@ -64,6 +65,10 @@ export default function PostPreviewModal({
   const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  // 쇼츠/릴스 - 같은 소재로 만든 세로 영상(추가 AI 비용 없음). 없으면 버튼으로 생성.
+  const [videoUrl, setVideoUrl] = useState<string | null>((post.video_url as string) ?? null);
+  const [videoBusy, setVideoBusy] = useState(false);
+  const [showVideo, setShowVideo] = useState(false);
 
   const slide = slides[index] ?? {};
   const total = slides.length || images.length;
@@ -169,6 +174,22 @@ export default function PostPreviewModal({
     }
   };
 
+  const makeShorts = async () => {
+    if (!approvalId) return;
+    setVideoBusy(true);
+    setEditError(null);
+    try {
+      const url = await regenerateShorts(approvalId);
+      setVideoUrl(url);
+      setShowVideo(true);
+      onSaved?.();
+    } catch (e) {
+      setEditError((e as Error).message);
+    } finally {
+      setVideoBusy(false);
+    }
+  };
+
   const currentImage = editing ? preview : images[index];
   // 편집기 도입 전 카드에는 원본 사진이 없어 문구만 다시 얹을 수 없다(사진이 사라짐) - 서버도 막지만
   // 편집 화면에서 미리 알려준다.
@@ -193,7 +214,9 @@ export default function PostPreviewModal({
               ‹
             </button>
             <div className="relative flex flex-1 items-center justify-center bg-slate-950">
-              {currentImage ? (
+              {showVideo && videoUrl ? (
+                <video src={videoUrl} controls autoPlay loop className="max-h-[62vh] w-auto" />
+              ) : currentImage ? (
                 <img src={currentImage} alt={`${index + 1}`} className="max-h-[62vh] w-auto object-contain" />
               ) : (
                 <div className="p-10 text-sm text-slate-500">{editing ? "다시 그리는 중..." : "이미지가 없습니다"}</div>
@@ -221,7 +244,23 @@ export default function PostPreviewModal({
               />
             ))}
           </div>
-          <div className="text-xs text-slate-400">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            {videoUrl ? (
+              <button
+                onClick={() => setShowVideo((v) => !v)}
+                className="rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800"
+              >
+                {showVideo ? "🖼 카드 보기" : "▶ 쇼츠 보기"}
+              </button>
+            ) : approvalId ? (
+              <button
+                onClick={makeShorts}
+                disabled={videoBusy}
+                className="rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+              >
+                {videoBusy ? "영상 만드는 중..." : "🎬 쇼츠 만들기 (무료)"}
+              </button>
+            ) : null}
             {index + 1} / {images.length} {isInstatoon ? "컷" : "장"}
             {slides[index]?.headline ? ` — ${String(slides[index].headline)}` : ""}
           </div>

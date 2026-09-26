@@ -14,3 +14,5 @@ python-multipart==0.0.20
 openai==3.3.1
 PyJWT[crypto]==2.13.0
 Pillow==12.3.0
+# 쇼츠/릴스 렌더링용 ffmpeg 바이너리 동봉 패키지(app/services/shorts.py)
+imageio-ffmpeg==0.6.0

@@ -5,6 +5,7 @@ import {
   listProductAssets,
   listProducts,
   regenerateMascot,
+  screenRecordingToShorts,
   updateProduct,
   updateProductAsset,
   uploadProductAsset,
@@ -186,6 +187,8 @@ export default function AppManagementView() {
   const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  // 앱 화면 녹화로 만든 쇼츠 URL(제품별) - 업로드 직후 바로 확인할 수 있게
+  const [shortsUrl, setShortsUrl] = useState<Record<string, string>>({});
 
   const [pendingUploadProduct, setPendingUploadProduct] = useState<string | null>(null);
   const [pendingDescription, setPendingDescription] = useState("");
@@ -649,6 +652,54 @@ export default function AppManagementView() {
                   >
                     {busyId === `mascot:${p.name}` ? "생성중..." : p.mascot_url ? "재생성" : "생성"}
                   </button>
+                </div>
+
+                {/* 앱 화면 녹화 → 쇼츠. 실제로 쓰는 화면이 앱 홍보에서 가장 설득력이 높아
+                    별도 경로로 둔다. AI를 전혀 쓰지 않아 비용이 없다. */}
+                <div className="mb-4 flex items-center gap-3 rounded-md border border-slate-800 bg-slate-950/50 p-3">
+                  <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-md bg-slate-800 text-2xl">
+                    🎬
+                  </div>
+                  <div className="flex flex-1 flex-col gap-1">
+                    <span className="text-xs font-medium text-slate-400">앱 화면 녹화 → 쇼츠</span>
+                    <span className="text-[11px] text-slate-500">
+                      아이폰 화면 녹화를 올리면 세로(9:16)로 맞추고 브랜드 헤더·CTA를 얹어 드립니다.
+                    </span>
+                    {shortsUrl[p.name] && (
+                      <a
+                        href={shortsUrl[p.name]}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-brand-purple underline"
+                      >
+                        완성된 쇼츠 보기
+                      </a>
+                    )}
+                  </div>
+                  <label className="flex-shrink-0 cursor-pointer rounded-md border border-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-800">
+                    {busyId === `shorts:${p.name}` ? "변환중..." : "+ 녹화 업로드"}
+                    <input
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      disabled={busyId === `shorts:${p.name}`}
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        setBusyId(`shorts:${p.name}`);
+                        setError(null);
+                        try {
+                          const url = await screenRecordingToShorts(p.name, file, "", 20);
+                          setShortsUrl((prev) => ({ ...prev, [p.name]: url }));
+                        } catch (err) {
+                          setError((err as Error).message);
+                        } finally {
+                          setBusyId(null);
+                        }
+                      }}
+                    />
+                  </label>
                 </div>
 
                 <div className="mb-2 flex items-center justify-between">

@@ -18,6 +18,7 @@ def _marketing_payload(state: OSState) -> dict:
         "caption": post.get("caption"),
         "slides": post.get("slides", []),
         "image_urls": post.get("image_urls", []),
+        "video_url": post.get("video_url"),  # 쇼츠/릴스 - 결재 화면에서 함께 확인
         "director_notes": post.get("director_notes"),
         # 브랜드 QA가 완성 카드를 직접 보고 남긴 검수 소견 - CEO가 결재 전에 같이 본다.
         "qa_summary": (state.get("qa_report") or {}).get("summary"),

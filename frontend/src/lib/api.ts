@@ -694,3 +694,36 @@ export async function updateEmployee(
   if (!res.ok) throw new Error((await res.json()).detail ?? "employee update failed");
   return res.json();
 }
+
+// ── 쇼츠/릴스 ────────────────────────────────────────────────────────────────
+// 이미 만든 이미지를 재활용해 세로 영상을 만든다(AI 비용 0). 앱 화면 녹화를 올려
+// 브랜드 헤더·자막·CTA를 얹은 쇼츠로 만드는 경로도 있다.
+
+export async function regenerateShorts(approvalId: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/marketing/posts/${approvalId}/shorts`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "shorts failed");
+  return (await res.json()).video_url as string;
+}
+
+export async function screenRecordingToShorts(
+  product: string,
+  file: File,
+  subtitle = "",
+  seconds = 20,
+): Promise<string> {
+  const form = new FormData();
+  form.append("product", product);
+  form.append("subtitle", subtitle);
+  form.append("seconds", String(seconds));
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/marketing/screen-recording`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: form,
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "screen recording failed");
+  return (await res.json()).video_url as string;
+}
