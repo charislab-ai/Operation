@@ -156,7 +156,7 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
             for i, slide in enumerate(merged_slides):
                 kwargs = {
                     "page_label": f"{i + 1}/{total}",
-                    "layout_style": slide.get("layout_style", "banded"),
+                    "layout_spec": slide.get("layout_spec"),
                     "brand_color": brand_color,
                 }
 

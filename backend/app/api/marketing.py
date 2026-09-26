@@ -219,3 +219,29 @@ def update_ai_budget(payload: AiBudgetUpdate) -> dict:
     row = get_supabase().table("ai_budget").update(updates).eq("id", 1).execute().data[0]
     used = usage_today()
     return {**row, "used_images_today": used["images"], "used_tokens_today": used["tokens"]}
+
+
+class LayoutOut(BaseModel):
+    id: str
+    name: str
+    when_to_use: str
+    spec: dict
+    source: str | None
+    enabled: bool
+    times_used: int
+
+
+@router.get("/layouts", response_model=list[LayoutOut])
+def list_layouts() -> list[dict]:
+    """벤치마킹으로 찾아내 기억하고 있는 카드 틀 목록 - 비주얼 디자이너가 여기서 골라 쓰거나
+    여러 개를 조합해 새 틀을 만든다."""
+    return get_supabase().table("layout_library").select("*").order("name").execute().data
+
+
+@router.patch("/layouts/{layout_id}", response_model=LayoutOut)
+def toggle_layout(layout_id: str, enabled: bool) -> dict:
+    """마음에 안 드는 틀은 꺼둘 수 있다(끄면 디자이너가 후보에서 제외)."""
+    result = get_supabase().table("layout_library").update({"enabled": enabled}).eq("id", layout_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="layout not found")
+    return result.data[0]

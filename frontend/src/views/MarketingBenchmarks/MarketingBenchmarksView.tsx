@@ -1,6 +1,69 @@
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
-import { getBenchmark, listBenchmarks, type BenchmarkListItem } from "../../lib/api";
+import {
+  getBenchmark,
+  listBenchmarks,
+  listLayouts,
+  toggleLayout,
+  type BenchmarkListItem,
+  type LayoutOut,
+} from "../../lib/api";
+
+function LayoutLibrary() {
+  const [layouts, setLayouts] = useState<LayoutOut[]>([]);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    listLayouts().then(setLayouts).catch(() => undefined);
+  }, []);
+
+  const flip = async (l: LayoutOut) => {
+    try {
+      const updated = await toggleLayout(l.id, !l.enabled);
+      setLayouts((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    } catch {
+      /* 무시 - 목록은 그대로 */
+    }
+  };
+
+  if (layouts.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-2 text-left">
+        <span className="text-sm font-medium text-slate-200">기억하고 있는 카드 틀 {layouts.length}종</span>
+        <span className="text-xs text-slate-500">
+          벤치마킹에서 찾은 틀을 저장해두고, 콘텐츠를 만들 때 골라 쓰거나 조합합니다
+        </span>
+        <span className="ml-auto text-slate-500">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {layouts.map((l) => (
+            <div
+              key={l.id}
+              className={`rounded-md border p-3 ${
+                l.enabled ? "border-slate-800 bg-slate-950/40" : "border-slate-900 bg-slate-950/20 opacity-50"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-slate-200">{l.name}</span>
+                <button
+                  onClick={() => flip(l)}
+                  className="ml-auto rounded border border-slate-700 px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-800"
+                >
+                  {l.enabled ? "사용중" : "꺼짐"}
+                </button>
+              </div>
+              <div className="mt-1 text-xs text-slate-400">{l.when_to_use}</div>
+              {l.source && <div className="mt-1 text-[11px] text-slate-600">출처: {l.source}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function MarketingBenchmarksView() {
   const [items, setItems] = useState<BenchmarkListItem[]>([]);
@@ -50,7 +113,11 @@ export default function MarketingBenchmarksView() {
   const renderedHtml = useMemo(() => (content ? marked.parse(content, { async: false }) : ""), [content]);
 
   return (
-    <div className="flex h-full gap-0 overflow-hidden text-slate-100">
+    <div className="flex h-full flex-col overflow-hidden text-slate-100">
+      <div className="shrink-0 overflow-auto px-4 pt-4">
+        <LayoutLibrary />
+      </div>
+      <div className="flex min-h-0 flex-1 gap-0 overflow-hidden">
       <div className="flex w-72 flex-shrink-0 flex-col overflow-auto border-r border-slate-800 p-4">
         <div className="mb-3 flex items-center justify-between">
           <h1 className="text-sm font-semibold">마케팅 리서치</h1>
@@ -113,6 +180,7 @@ export default function MarketingBenchmarksView() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

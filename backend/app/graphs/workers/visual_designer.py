@@ -26,8 +26,13 @@ SYSTEM_PROMPT_CARD_NEWS = """당신은 CharisLab의 비주얼 디자이너입니
   head, not cropped tightly" 처럼 머리 위 여백을 확보하라고 명시하세요(머리가 잘리는 문제 확인됨)
 - **등장인물은 반드시 한국인(Korean people)으로 명시**하세요 — "Korean family"/"Korean
   friends"/"Korean office coworkers" 등으로 구체적으로 적으세요
-- 슬라이드마다 다른 장면(가족/친구/취미/일상/직장 등)을 골라 폭넓은 사용 사례를 보여주세요
-  (지시에 특정 장면이 없는 한 매번 같은 장면으로만 고정하지 말 것)
+- **가장 중요: 사진은 그 슬라이드가 말하는 내용을 직접 보여줘야 합니다.** 슬라이드 주제와
+  상관없는 "분위기용 사진"은 절대 넣지 마세요(실측 사고: "카톡으로 받은 mp3가 아이튠즈 없이
+  안 열린다"는 슬라이드에 정원에서 수채화 그리는 할머니 사진이 나왔음 - 이러면 사람들이
+  무슨 말인지 몰라 그냥 넘깁니다). 그 슬라이드의 불편함/해결 장면을 사람의 행동과 표정으로
+  구체적으로 그리세요. 예: "mp3가 안 열려 답답함" -> "폰 화면을 보며 미간을 찌푸린 한국인
+  20~30대, 화면엔 오류 안내가 떠 있는 느낌"
+- 장면을 억지로 다양화하려고 주제에서 벗어나지 마세요 - 다양성보다 "내용과 맞는가"가 우선입니다
 - 텍스트/로고는 이미지에 넣지 말라고 명시하세요(헤드라인/보조문구는 별도로 합성됩니다)
 
 **CEO 원문 확인(중요)**: 아래에 CEO의 원본 지시문이 함께 주어집니다. 색상/특정 요소/스타일 등
@@ -43,17 +48,20 @@ SYSTEM_PROMPT_CARD_NEWS = """당신은 CharisLab의 비주얼 디자이너입니
 관련 패턴(예: 캐러셀 슬라이드별 시각적 역할, 인물/제품 배치 방식 등) 중 참고할 게 있으면 이번
 이미지 프롬프트에 실제로 반영하세요. 매번 비슷한 장면·구도로만 만들면 안 됩니다.
 
-**카드 레이아웃 스타일 선택(중요)**: 슬라이드마다 layout_style을 아래 4가지 중 하나로 정하세요 -
-- banded: 사진(상단) + 하단 브랜드컬러 밴드에 텍스트 - 가장 안정적, 기본값
-- overlay: 풀블리드 사진 전체 위에 하단 그라데이션과 흰 텍스트 오버레이 - 인스타그램에서 가장 흔한
-  "사진 위 텍스트" 스타일
-- bold_type: 작은 사진 썸네일 + 화면 대부분을 채우는 초대형 타이포그래피 - 후킹(1번) 슬라이드나
-  질문형 문구에 특히 효과적
-- split: 좌측 브랜드컬러 블록에 텍스트, 우측에 사진 - 정보 대비가 필요한 슬라이드에 어울림
+**카드 틀 설계(가장 중요)**: 슬라이드마다 layout_name과 layout_spec을 정하세요.
 
-벤치마킹 리포트에 언급된 인기 있는 카드뉴스 구성 방식을 참고해서 고르고, **한 게시물 안에서도
-슬라이드마다 다른 스타일을 섞어서** 다양하게 구성하세요 - 모든 슬라이드를 같은 layout_style로
-고르면 안 됩니다."""
+아래에 "틀 라이브러리"가 주어집니다. 이건 하루 2회 도는 마케팅 벤치마킹이 실제 인스타그램에서
+찾아낸 인기 카드 틀들을 기억해둔 것입니다. 각 틀에는 "언제 쓰면 좋은지"가 적혀 있습니다.
+
+1. 이번 슬라이드가 말하려는 내용에 **가장 잘 맞는 틀을 라이브러리에서 고르세요** - 고른 틀의
+   이름을 layout_name에, spec을 layout_spec에 그대로 넣습니다.
+2. 딱 맞는 게 없으면 **여러 틀의 요소를 조합해 새 틀을 만드세요** - 배경/사진처리/사진위치/기울기/
+   텍스트패널/텍스트위치/제목크기/강조를 직접 조합하고, 새 이름을 지어 layout_name에 적습니다
+   (예: "폴라로이드+체크리스트형"). 벤치마킹 리포트에서 본 틀을 조합으로 재현해도 좋습니다.
+3. **한 게시물 안에서 같은 틀을 반복하지 마세요.** 슬라이드마다 역할이 다르니 틀도 달라야 합니다
+   (1번은 시선을 잡는 강한 틀, 중간은 정보 전달, 마지막은 행동 유도).
+4. 실제 앱 스크린샷(real_screenshot_asset_id)을 쓰는 슬라이드는 photo_style을 반드시 "device"로
+   하세요 - 그래야 폰 화면이 잘리지 않고 크게 보입니다."""
 
 SYSTEM_PROMPT_INSTATOON = """당신은 CharisLab의 비주얼 디자이너입니다. 이번엔 카드뉴스가 아니라
 "인스타툰"(마스코트 캐릭터가 등장하는 말풍선 만화)입니다. 마케팅 디렉터가 정한 컷별 주제 목록
@@ -120,6 +128,22 @@ async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
             else "(등록된 실제 스크린샷 없음)"
         )
 
+    layouts = (
+        get_supabase()
+        .table("layout_library")
+        .select("name, when_to_use, spec")
+        .eq("enabled", True)
+        .order("name")
+        .execute()
+        .data
+    )
+    layout_context = (
+        "[틀 라이브러리 - 벤치마킹으로 찾아낸 카드 틀들]\n"
+        + "\n".join(f"- {l['name']}: {l['when_to_use']}\n  spec={l['spec']}" for l in layouts)
+        if layouts
+        else "(틀 라이브러리 비어있음 - 직접 조합해서 설계할 것)"
+    )
+
     benchmarks = await fetch_latest_benchmarks(limit=2)
     benchmark_context = (
         "\n\n".join(f"[최근 마케팅 벤치마킹 리포트]\n{b}" for b in benchmarks)
@@ -132,7 +156,7 @@ async def visual_designer_node(state: OSState, config: RunnableConfig) -> dict:
         f"제품: {brief['product']}\n"
         f"슬라이드 주제({len(brief['slide_topics'])}개, 이 순서 그대로 작성):\n"
         + "\n".join(f"{i + 1}. {t}" for i, t in enumerate(brief["slide_topics"]))
-        + f"\n\n{assets_context}\n\n{benchmark_context}"
+        + f"\n\n{assets_context}\n\n{layout_context}\n\n{benchmark_context}"
     )
 
     visual = await llm.complete_structured(

@@ -551,3 +551,28 @@ export async function updateAiBudget(
   if (!res.ok) throw new Error((await res.json()).detail ?? "ai budget update failed");
   return res.json();
 }
+
+export interface LayoutOut {
+  id: string;
+  name: string;
+  when_to_use: string;
+  spec: Record<string, unknown>;
+  source: string | null;
+  enabled: boolean;
+  times_used: number;
+}
+
+export async function listLayouts(): Promise<LayoutOut[]> {
+  const res = await fetch(`${API_BASE}/marketing/layouts`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "layout list failed");
+  return res.json();
+}
+
+export async function toggleLayout(layoutId: string, enabled: boolean): Promise<LayoutOut> {
+  const res = await fetch(`${API_BASE}/marketing/layouts/${layoutId}?enabled=${enabled}`, {
+    method: "PATCH",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "layout toggle failed");
+  return res.json();
+}

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db.supabase_client import get_supabase
 from app.services.directive_intake import create_directive_and_run
+from app.services.layout_sync import sync_layouts_from_benchmarks
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,13 @@ async def run_auto_marketing_loop(graph) -> None:
     """앱이 떠 있는 동안 계속 도는 백그라운드 루프. 실패해도 다음 주기에 다시 시도한다."""
     while True:
         await asyncio.sleep(CHECK_INTERVAL_SECONDS)
+        try:
+            # 벤치마킹이 새로 찾아낸 카드 틀을 라이브러리에 반영(자동 발행이 꺼져 있어도 수행)
+            added = await sync_layouts_from_benchmarks()
+            if added:
+                logger.info("벤치마킹에서 새 카드 틀 %d종 등록", added)
+        except Exception:
+            logger.exception("카드 틀 동기화 실패")
         try:
             await run_auto_marketing_once(graph)
         except Exception:

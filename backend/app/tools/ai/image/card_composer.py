@@ -1,5 +1,6 @@
 from app.tools.ai.image import get_image_gen, get_instatoon_image_gen
-from app.tools.ai.image.card_renderer import DEFAULT_BRAND, RENDERERS, render_banded, render_comic_panel
+from app.tools.ai.image.card_renderer import DEFAULT_BRAND, render_comic_panel
+from app.tools.ai.image.layout_engine import render_composed
 
 
 async def compose_marketing_card(
@@ -12,7 +13,7 @@ async def compose_marketing_card(
     illustration_bytes: bytes | None = None,
     thread_id: str | None = None,
     agent_name: str | None = None,
-    layout_style: str = "banded",
+    layout_spec: dict | None = None,
 ) -> bytes:
     """배경 이미지 위에 실제 헤드라인/보조문구를 합성한 카드뉴스 이미지를 만든다.
 
@@ -20,16 +21,17 @@ async def compose_marketing_card(
     텍스트는 PIL로 정확하게 얹는다. brand_color는 제품별 브랜드 컬러(CharisLab 색을 그대로 쓰면 안 됨).
     illustration_bytes를 직접 넘기면 AI 생성을 건너뛰고 그 이미지(예: 실제 앱 스크린샷)를 그대로 쓴다.
     thread_id/agent_name은 업무 지시별 AI 사용량 로깅용 선택적 컨텍스트.
-    layout_style은 비주얼 디자이너가 슬라이드별로 고른 카드 레이아웃(banded|overlay|bold_type|split) -
-    "카드뉴스가 매번 똑같다"는 문제를 해결하기 위해 여러 틀을 두고 매번 다르게 쓰기 위함
-    (card_renderer.py의 RENDERERS 참고).
+    layout_spec은 비주얼 디자이너가 슬라이드별로 설계한 조합형 레이아웃이다 - 고정된 틀 목록에서
+    고르는 게 아니라 배경/사진처리/텍스트패널/강조를 조합하므로, 벤치마킹으로 발견한 새 틀도
+    코드 수정 없이 바로 쓸 수 있다(app/tools/ai/image/layout_engine.py 참고).
     """
     if illustration_bytes is None:
         illustration_bytes = await get_image_gen().generate_bytes(
             image_prompt, thread_id=thread_id, agent_name=agent_name
         )
-    renderer = RENDERERS.get(layout_style, render_banded)
-    return renderer(illustration_bytes, headline, subtext, product, page_label, brand_color)
+    return render_composed(
+        illustration_bytes, headline, subtext, product, page_label, brand_color, spec=layout_spec
+    )
 
 
 async def compose_instatoon_panel(
