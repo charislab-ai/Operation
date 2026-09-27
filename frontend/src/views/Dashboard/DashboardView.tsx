@@ -10,6 +10,9 @@ import {
   type MarketingMetricOut,
   type ProductAssetOut,
   type ProductOut,
+  getPerformance,
+  refreshPerformance,
+  type PerformanceOut,
 } from "../../lib/api";
 import type { ViewKey } from "../../components/Sidebar";
 
@@ -68,17 +71,28 @@ export default function DashboardView({ onNavigate }: { onNavigate: (key: ViewKe
   const [assets, setAssets] = useState<ProductAssetOut[]>([]);
   const [products, setProducts] = useState<ProductOut[]>([]);
   const [audit, setAudit] = useState<AuditLogEntry[]>([]);
+  // 게시 성과(실측) - 6시간마다 자동 수집되며, 여기서 즉시 갱신도 가능하다
+  const [perf, setPerf] = useState<PerformanceOut | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([listDirectives(), getMarketingMetrics(), listProductAssets(), listProducts(), getAuditLog(20)])
-      .then(([d, m, a, p, l]) => {
+    Promise.all([
+      listDirectives(),
+      getMarketingMetrics(),
+      listProductAssets(),
+      listProducts(),
+      getAuditLog(20),
+      getPerformance().catch(() => null),
+    ])
+      .then(([d, m, a, p, l, perfData]) => {
         setDirectives(d);
         setMetrics(m);
         setAssets(a);
         setProducts(p);
         setAudit(l);
+        setPerf(perfData);
         setError(null);
       })
       .catch((e) => setError((e as Error).message))
@@ -126,6 +140,107 @@ export default function DashboardView({ onNavigate }: { onNavigate: (key: ViewKe
               onClick={() => onNavigate("appManagement")}
             />
           </div>
+
+          {/* 게시 성과 - 실제 수집된 값만 보여준다(추정 없음). 형식별 평균 도달로
+              "무엇이 실제로 퍼지는지"를 바로 볼 수 있게 한다. */}
+          {perf && (
+            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <h2 className="text-sm font-medium text-slate-300">게시 성과</h2>
+                <span className="text-xs text-slate-500">
+                  팔로워 {perf.totals.followers ?? "-"}명 · 측정된 게시물 {perf.totals.measured ?? 0}건
+                </span>
+                <button
+                  onClick={async () => {
+                    setRefreshing(true);
+                    try {
+                      await refreshPerformance();
+                      setPerf(await getPerformance());
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setRefreshing(false);
+                    }
+                  }}
+                  disabled={refreshing}
+                  className="ml-auto rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {refreshing ? "수집 중..." : "지금 수집"}
+                </button>
+              </div>
+
+              <div className="mb-3 grid grid-cols-3 gap-3 sm:grid-cols-6">
+                {[
+                  ["조회", perf.totals.views],
+                  ["도달", perf.totals.reach],
+                  ["저장", perf.totals.saved],
+                  ["공유", perf.totals.shares],
+                  ["좋아요", perf.totals.likes],
+                  ["댓글", perf.totals.comments],
+                ].map(([label, value]) => (
+                  <div key={String(label)} className="rounded border border-slate-800 bg-slate-950 p-2 text-center">
+                    <div className="text-[11px] text-slate-500">{label}</div>
+                    <div className="text-lg font-semibold tabular-nums text-slate-100">{value ?? 0}</div>
+                  </div>
+                ))}
+              </div>
+
+              {Object.keys(perf.by_media_type).length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {Object.entries(perf.by_media_type).map(([label, v]) => (
+                    <div key={label} className="rounded border border-slate-800 bg-slate-950 px-3 py-1.5 text-xs">
+                      <span className="font-medium text-slate-200">{label}</span>{" "}
+                      <span className="text-slate-500">{v.count}건 · 평균 도달</span>{" "}
+                      <span className="font-semibold text-brand-purple tabular-nums">{v.avg_reach}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {perf.posts.filter((p) => p.views !== null).length === 0 ? (
+                <div className="text-xs text-slate-500">아직 수집된 성과가 없습니다.</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="text-slate-500">
+                    <tr>
+                      <th className="pb-1 pr-3 font-medium">게시일</th>
+                      <th className="pb-1 pr-3 font-medium">앱</th>
+                      <th className="pb-1 pr-3 font-medium">형식</th>
+                      <th className="pb-1 pr-3 text-right font-medium">조회</th>
+                      <th className="pb-1 pr-3 text-right font-medium">도달</th>
+                      <th className="pb-1 pr-3 text-right font-medium">저장</th>
+                      <th className="pb-1 text-right font-medium">댓글</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-300">
+                    {perf.posts
+                      .filter((p) => p.views !== null)
+                      .map((p, i) => (
+                        <tr key={i} className="border-t border-slate-800">
+                          <td className="py-1.5 pr-3 whitespace-nowrap text-slate-500">{p.metric_date}</td>
+                          <td className="py-1.5 pr-3">
+                            {p.permalink ? (
+                              <a href={p.permalink} target="_blank" rel="noreferrer" className="text-brand-purple underline">
+                                {p.product}
+                              </a>
+                            ) : (
+                              p.product
+                            )}
+                          </td>
+                          <td className="py-1.5 pr-3 text-slate-400">
+                            {p.media_type === "VIDEO" || p.media_type === "REELS" ? "릴스" : "피드"}
+                          </td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{p.views ?? "-"}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{p.reach ?? "-"}</td>
+                          <td className="py-1.5 pr-3 text-right tabular-nums">{p.saved ?? "-"}</td>
+                          <td className="py-1.5 text-right tabular-nums">{p.comments ?? "-"}</td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
 
           <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
             <h2 className="mb-3 text-sm font-medium text-slate-300">최근 업무 지시</h2>

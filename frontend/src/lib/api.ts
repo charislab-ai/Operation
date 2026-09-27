@@ -771,3 +771,43 @@ export async function downloadBundle(item: LibraryItem): Promise<void> {
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+// ── 게시 성과 ────────────────────────────────────────────────────────────────
+// 인스타그램 Insights로 실제 수집한 지표만 담는다(추정값 없음).
+
+export interface PostPerformance {
+  product: string | null;
+  channel: string | null;
+  media_type: string | null;
+  metric_date: string;
+  permalink: string | null;
+  views: number | null;
+  reach: number | null;
+  saved: number | null;
+  shares: number | null;
+  likes: number | null;
+  comments: number | null;
+  profile_visits: number | null;
+}
+
+export interface PerformanceOut {
+  posts: PostPerformance[];
+  account: { snapshot_date: string; followers: number | null; media_count: number | null; reach: number | null; profile_views: number | null }[];
+  totals: Record<string, number | null>;
+  by_media_type: Record<string, { count: number; views: number; reach: number; avg_reach: number }>;
+}
+
+export async function getPerformance(days = 60): Promise<PerformanceOut> {
+  const res = await fetch(`${API_BASE}/marketing/performance?days=${days}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "performance load failed");
+  return res.json();
+}
+
+export async function refreshPerformance(): Promise<{ updated: number }> {
+  const res = await fetch(`${API_BASE}/marketing/performance/refresh`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "refresh failed");
+  return res.json();
+}

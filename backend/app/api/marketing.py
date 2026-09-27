@@ -601,3 +601,103 @@ def download_bundle(approval_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# 게시 성과 - 실제 수집된 지표만 보여준다(추정값 없음). app/services/insights.py가 6시간마다 갱신.
+# ---------------------------------------------------------------------------
+
+
+class PostPerformance(BaseModel):
+    product: str | None
+    channel: str | None
+    media_type: str | None
+    metric_date: str
+    permalink: str | None
+    views: int | None
+    reach: int | None
+    saved: int | None
+    shares: int | None
+    likes: int | None
+    comments: int | None
+    profile_visits: int | None
+
+
+class AccountTrend(BaseModel):
+    snapshot_date: str
+    followers: int | None
+    media_count: int | None
+    reach: int | None
+    profile_views: int | None
+
+
+class PerformanceOut(BaseModel):
+    posts: list[PostPerformance]
+    account: list[AccountTrend]
+    totals: dict
+    by_media_type: dict  # 릴스 vs 피드 - 어느 형식이 실제로 도달하는지
+
+
+@router.get("/performance", response_model=PerformanceOut)
+def get_performance(days: int = 60) -> dict:
+    from datetime import date, timedelta
+
+    supabase = get_supabase()
+    since = (date.today() - timedelta(days=days)).isoformat()
+    posts = (
+        supabase.table("marketing_metrics")
+        .select("product, channel, media_type, metric_date, permalink, views, reach, saved, shares, likes, comments, profile_visits")
+        .gte("metric_date", since)
+        .order("metric_date", desc=True)
+        .execute()
+        .data
+    )
+    account = (
+        supabase.table("account_snapshots")
+        .select("snapshot_date, followers, media_count, reach, profile_views")
+        .gte("snapshot_date", since)
+        .order("snapshot_date")
+        .execute()
+        .data
+    )
+
+    def _sum(key: str) -> int:
+        return sum(p.get(key) or 0 for p in posts)
+
+    measured = [p for p in posts if p.get("views") is not None]
+    by_type: dict[str, dict] = {}
+    for p in measured:
+        label = "릴스" if (p.get("media_type") or "") in ("VIDEO", "REELS") else "피드"
+        bucket = by_type.setdefault(label, {"count": 0, "views": 0, "reach": 0})
+        bucket["count"] += 1
+        bucket["views"] += p.get("views") or 0
+        bucket["reach"] += p.get("reach") or 0
+    for bucket in by_type.values():
+        bucket["avg_reach"] = round(bucket["reach"] / bucket["count"]) if bucket["count"] else 0
+
+    return {
+        "posts": posts,
+        "account": account,
+        "totals": {
+            "posts": len(posts),
+            "measured": len(measured),
+            "views": _sum("views"),
+            "reach": _sum("reach"),
+            "saved": _sum("saved"),
+            "shares": _sum("shares"),
+            "likes": _sum("likes"),
+            "comments": _sum("comments"),
+            "followers": (account[-1]["followers"] if account else None),
+        },
+        "by_media_type": by_type,
+    }
+
+
+@router.post("/performance/refresh")
+async def refresh_performance() -> dict:
+    """성과를 지금 즉시 수집한다(6시간 주기를 기다리지 않고 확인하고 싶을 때)."""
+    from app.services.insights import collect_post_insights, snapshot_account
+
+    updated = await collect_post_insights()
+    snap = await snapshot_account()
+    return {"updated": updated, "account": snap}

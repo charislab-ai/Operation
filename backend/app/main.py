@@ -26,6 +26,7 @@ from app.db.keepalive import run_keepalive_loop
 from app.graphs.build import build_graph
 from app.services.auto_marketing import run_auto_marketing_loop
 from app.services.hiring import run_hiring_watch_loop
+from app.services.insights import run_insights_loop
 from app.tools.telegram_bot import get_bot
 
 
@@ -45,10 +46,13 @@ async def lifespan(app: FastAPI):
     auto_marketing_task = asyncio.create_task(run_auto_marketing_loop(app.state.graph))
     # 입사 예정 직원의 입사 조건이 채워지면 CEO에게 먼저 알린다(app/services/hiring.py)
     hiring_task = asyncio.create_task(run_hiring_watch_loop())
+    # 게시 성과(조회·도달·저장) 주기적 수집 - 무엇이 먹히는지 근거로 판단하기 위함
+    insights_task = asyncio.create_task(run_insights_loop())
     yield
     keepalive_task.cancel()
     auto_marketing_task.cancel()
     hiring_task.cancel()
+    insights_task.cancel()
     await close_checkpointer()
 
 
