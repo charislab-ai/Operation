@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 
+from app.config import settings
 from app.db.ai_usage import log_ai_usage
 from app.tools.ai.llm.base import Message, SchemaT
 
@@ -13,6 +15,20 @@ _CLI_LOCK = asyncio.Semaphore(1)
 
 class ClaudeCLIUnavailable(Exception):
     """claude CLI 실행 실패 또는 사용량 한도 초과 — 상위(get_llm)에서 API로 폴백해야 함을 알린다."""
+
+
+def _cli_env() -> dict[str, str]:
+    """CLI 서브프로세스에 넘길 환경변수.
+
+    핵심: **ANTHROPIC_API_KEY를 제거**한다. 이 키가 환경에 있으면 Claude Code가 구독 대신
+    API 종량제로 과금하기 때문에, CLI로 바꾼 의미(구독 사용량 활용)가 사라진다. 구독 인증은
+    `claude setup-token`으로 발급한 CLAUDE_CODE_OAUTH_TOKEN으로 이뤄진다.
+    """
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+    token = settings.claude_code_oauth_token
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    return env
 
 
 def _split_system_and_prompt(messages: list[Message]) -> tuple[str | None, str]:
@@ -40,7 +56,11 @@ async def _run_cli(system: str | None, prompt: str, json_schema: dict | None = N
     try:
         async with _CLI_LOCK:
             proc = await asyncio.create_subprocess_exec(
-                *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                *args,
+                stdin=asyncio.subprocess.DEVNULL,  # 없으면 CLI가 stdin을 3초 기다린다(호출마다 낭비)
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_cli_env(),
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=90.0)
     except (FileNotFoundError, TimeoutError) as exc:

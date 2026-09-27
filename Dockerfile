@@ -21,6 +21,12 @@ RUN npm run build
 # --- 2단계: 백엔드 + 정적 파일 서빙 ---
 FROM python:3.12-slim
 WORKDIR /app
+
+# Claude Code CLI - LLM 호출을 구독 사용량으로 처리하기 위해 설치한다(없으면 API 종량제로
+# 폴백). 예전엔 서버에 CLI 자체가 없어서 1순위 경로가 항상 건너뛰어졌다.
+# CLAUDE_CODE_OAUTH_TOKEN(= claude setup-token 결과)이 있어야 헤드리스로 인증된다.
+RUN apt-get update     && apt-get install -y --no-install-recommends curl ca-certificates     && curl -fsSL https://deb.nodesource.com/setup_22.x | bash -     && apt-get install -y --no-install-recommends nodejs     && npm install -g @anthropic-ai/claude-code@latest     && npm cache clean --force     && apt-get purge -y curl && apt-get autoremove -y     && rm -rf /var/lib/apt/lists/*
+
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .

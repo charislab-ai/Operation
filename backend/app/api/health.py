@@ -22,6 +22,21 @@ def _ffmpeg_status() -> str:
         return f"사용 불가: {exc}"
 
 
+def _claude_cli_status() -> str:
+    """Claude Code CLI가 이 서버에서 실행 가능한지 - LLM 호출을 구독으로 돌리는 경로라
+    없으면 조용히 API 종량제로 폴백해버려서 눈치채기 어렵다."""
+    from app.config import settings
+
+    try:
+        out = subprocess.run(["claude", "--version"], capture_output=True, text=True, timeout=15)
+        if out.returncode != 0:
+            return f"실행 실패: {out.stderr[:100]}"
+        auth = "구독 토큰 있음" if settings.claude_code_oauth_token else "⚠️ 토큰 없음(API 종량제로 동작)"
+        return f"{out.stdout.strip()} · {auth}"
+    except Exception as exc:
+        return f"사용 불가: {exc}"
+
+
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "ffmpeg": _ffmpeg_status()}
+    return {"status": "ok", "ffmpeg": _ffmpeg_status(), "claude_cli": _claude_cli_status()}

@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     gemini_image_model: str = "gemini-3.1-flash-image"
 
     anthropic_api_key: str = ""
+    # `claude setup-token`으로 발급한 구독 인증 토큰. 있으면 Claude Code CLI가 구독 사용량으로
+    # 동작하고(비용 0), 없거나 한도를 넘으면 anthropic_api_key로 폴백한다.
+    claude_code_oauth_token: str = ""
     openai_api_key: str = ""
     google_gemini_api_key: str = ""
 
