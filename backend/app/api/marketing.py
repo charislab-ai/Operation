@@ -491,7 +491,7 @@ class LibraryItem(BaseModel):
     hashtags: list[str]
     image_urls: list[str]
     video_url: str | None
-    permalink: str | None  # 실제 게시했다면 그 링크
+    permalinks: list[str]  # 실제 게시된 링크들(피드·릴스 등). 없으면 빈 목록
     director_notes: str | None
     qa_summary: str | None
 
@@ -518,11 +518,13 @@ def list_library(limit: int = 50) -> list[dict]:
         .execute()
         .data
     )
+    # 게시 링크는 콘텐츠에 직접 적힌 것(payload)이 가장 정확하다. 없으면 같은 제품·채널의
+    # 게시 기록에서 찾아 붙인다(시스템이 게시한 건은 marketing_metrics에만 남기 때문).
     metrics = supabase.table("marketing_metrics").select("product, channel, permalink, metric_date").execute().data
-    latest_link: dict[tuple, str] = {}
-    for m in sorted(metrics, key=lambda x: x.get("metric_date") or ""):
+    links_by_key: dict[tuple, list[str]] = {}
+    for m in sorted(metrics, key=lambda x: x.get("metric_date") or "", reverse=True):
         if m.get("permalink"):
-            latest_link[(m.get("product"), m.get("channel"))] = m["permalink"]
+            links_by_key.setdefault((m.get("product"), m.get("channel")), []).append(m["permalink"])
 
     items = []
     for row in rows:
@@ -541,9 +543,15 @@ def list_library(limit: int = 50) -> list[dict]:
                 "hashtags": tags,
                 "image_urls": payload.get("image_urls") or [],
                 "video_url": payload.get("video_url"),
-                "permalink": latest_link.get((payload.get("product"), payload.get("channel")))
-                if row["status"] == "approved"
-                else None,
+                "permalinks": (
+                    payload.get("permalinks")
+                    or ([payload["permalink"]] if payload.get("permalink") else None)
+                    or (
+                        links_by_key.get((payload.get("product"), payload.get("channel")), [])[:2]
+                        if row["status"] == "approved"
+                        else []
+                    )
+                ),
                 "director_notes": payload.get("director_notes"),
                 "qa_summary": payload.get("qa_summary"),
             }

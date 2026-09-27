@@ -190,8 +190,11 @@ export default function AppManagementView() {
   // 앱 화면 녹화로 만든 쇼츠 URL(제품별) - 업로드 직후 바로 확인할 수 있게
   const [shortsUrl, setShortsUrl] = useState<Record<string, string>>({});
 
+  // 스크린샷 등록 대기열 - 예전엔 파일을 고르는 즉시 설명 없이 올라가서, 매번 "수정"으로
+  // 다시 들어가 설명을 적어야 했다(CEO 지적). 이제 고른 뒤 설명을 적고 등록한다. 여러 장 동시 지원.
   const [pendingUploadProduct, setPendingUploadProduct] = useState<string | null>(null);
-  const [pendingDescription, setPendingDescription] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<{ file: File; preview: string; description: string }[]>([]);
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -256,26 +259,47 @@ export default function AppManagementView() {
 
   const startUpload = (product: string) => {
     setPendingUploadProduct(product);
-    setPendingDescription("");
+    setPendingFiles([]);
     setTimeout(() => fileInputRef.current?.click(), 0);
   };
 
-  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  /** 파일을 고르면 바로 올리지 않고 설명 입력 화면(대기열)에 쌓는다. */
+  const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (files.length === 0 || !pendingUploadProduct) return;
+    setPendingFiles((prev) => [
+      ...prev,
+      ...files.map((file) => ({ file, preview: URL.createObjectURL(file), description: "" })),
+    ]);
+  };
+
+  const cancelPendingUpload = () => {
+    pendingFiles.forEach((f) => URL.revokeObjectURL(f.preview));
+    setPendingFiles([]);
+    setPendingUploadProduct(null);
+    setUploadProgress(null);
+  };
+
+  /** 대기열을 순서대로 등록한다 - 한 장이 실패해도 나머지는 계속 올린다. */
+  const submitPendingUploads = async () => {
     const product = pendingUploadProduct;
-    if (!file || !product) return;
-    setBusyId(`upload:${product}`);
+    if (!product || pendingFiles.length === 0) return;
     setError(null);
-    try {
-      await uploadProductAsset(product, pendingDescription, file);
-      load();
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setBusyId(null);
-      setPendingUploadProduct(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
+    setUploadProgress({ done: 0, total: pendingFiles.length });
+    const failed: string[] = [];
+    for (let i = 0; i < pendingFiles.length; i += 1) {
+      const item = pendingFiles[i];
+      try {
+        await uploadProductAsset(product, item.description.trim(), item.file);
+      } catch (err) {
+        failed.push(`${item.file.name}: ${(err as Error).message}`);
+      }
+      setUploadProgress({ done: i + 1, total: pendingFiles.length });
     }
+    if (failed.length) setError(`일부 등록 실패 - ${failed.join(" / ")}`);
+    load();
+    cancelPendingUpload();
   };
 
   const startEditAsset = (asset: ProductAssetOut) => {
@@ -380,7 +404,94 @@ export default function AppManagementView() {
         </div>
       </div>
 
-      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileSelected} />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="hidden"
+        onChange={handleFileSelected}
+      />
+
+      {/* 등록 대기 화면 - 설명을 적은 뒤 등록한다(여러 장 일괄 가능) */}
+      {pendingUploadProduct && pendingFiles.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="flex max-h-full w-full max-w-3xl flex-col gap-3 overflow-auto rounded-lg border border-slate-800 bg-slate-900 p-5">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium text-slate-200">
+                {pendingUploadProduct} 스크린샷 등록 ({pendingFiles.length}장)
+              </h2>
+              <span className="text-xs text-slate-500">
+                화면 설명을 적어야 디자이너가 알맞은 슬라이드에 씁니다
+              </span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="ml-auto rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+              >
+                + 더 고르기
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {pendingFiles.map((item, idx) => (
+                <div key={item.preview} className="flex items-start gap-3 rounded border border-slate-800 bg-slate-950 p-2">
+                  <img src={item.preview} alt="" className="h-24 w-16 flex-shrink-0 rounded object-cover" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <span className="truncate text-[11px] text-slate-500">{item.file.name}</span>
+                    <input
+                      value={item.description}
+                      autoFocus={idx === 0}
+                      onChange={(e) =>
+                        setPendingFiles((prev) =>
+                          prev.map((f, i) => (i === idx ? { ...f, description: e.target.value } : f)),
+                        )
+                      }
+                      placeholder="예: [한글 UI] 라이브러리 화면 - 가져온 음악 목록, 검색 및 재생"
+                      className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-600"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      URL.revokeObjectURL(item.preview);
+                      setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
+                    }}
+                    className="flex-shrink-0 rounded border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:bg-slate-800"
+                  >
+                    빼기
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {uploadProgress && (
+                <span className="text-xs text-slate-400">
+                  등록 중... {uploadProgress.done}/{uploadProgress.total}
+                </span>
+              )}
+              <button
+                onClick={submitPendingUploads}
+                disabled={uploadProgress !== null || pendingFiles.some((f) => !f.description.trim())}
+                className="ml-auto rounded-md bg-brand-purple px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                title={
+                  pendingFiles.some((f) => !f.description.trim())
+                    ? "모든 화면에 설명을 적어주세요"
+                    : undefined
+                }
+              >
+                {uploadProgress ? "등록 중..." : `${pendingFiles.length}장 등록`}
+              </button>
+              <button
+                onClick={cancelPendingUpload}
+                disabled={uploadProgress !== null}
+                className="rounded-md border border-slate-700 px-4 py-2 text-sm text-slate-300 disabled:opacity-50"
+              >
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddForm && (
         <div className="flex flex-col gap-2 rounded-lg border border-slate-800 bg-slate-900 p-4">
@@ -711,20 +822,9 @@ export default function AppManagementView() {
                     disabled={isUploadingThis}
                     className="rounded-md bg-brand-purple px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
                   >
-                    {isUploadingThis ? "등록중..." : "+ 스크린샷"}
+                    {isUploadingThis ? "등록중..." : "+ 스크린샷 (여러 장 가능)"}
                   </button>
                 </div>
-
-                {pendingUploadProduct === p.name && (
-                  <input
-                    type="text"
-                    autoFocus
-                    value={pendingDescription}
-                    onChange={(e) => setPendingDescription(e.target.value)}
-                    placeholder="화면 설명 (예: 앨범 목록 화면) — 입력 후 파일 선택"
-                    className="mb-3 w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-500"
-                  />
-                )}
 
                 {productAssets.length === 0 ? (
                   <div className="text-sm text-slate-500">등록된 스크린샷이 없습니다.</div>

@@ -744,7 +744,7 @@ export interface LibraryItem {
   hashtags: string[];
   image_urls: string[];
   video_url: string | null;
-  permalink: string | null;
+  permalinks: string[];
   director_notes: string | null;
   qa_summary: string | null;
 }

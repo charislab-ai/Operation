@@ -99,6 +99,11 @@ export default function LibraryView() {
                         🎬 쇼츠
                       </span>
                     )}
+                    {item.permalinks.length > 0 && (
+                      <span className="rounded bg-emerald-900/40 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                        게시됨
+                      </span>
+                    )}
                   </div>
                   <div className="mt-1 truncate text-xs text-slate-500">
                     {(item.caption ?? "").slice(0, 80) || "문구 없음"}
@@ -156,16 +161,17 @@ export default function LibraryView() {
                             쇼츠만 받기
                           </a>
                         )}
-                        {item.permalink && (
+                        {item.permalinks.map((link) => (
                           <a
-                            href={item.permalink}
+                            key={link}
+                            href={link}
                             target="_blank"
                             rel="noreferrer"
                             className="text-xs text-brand-purple underline"
                           >
-                            게시물 보기
+                            {link.includes("/reel/") ? "릴스 보기" : "게시물 보기"}
                           </a>
-                        )}
+                        ))}
                       </div>
                     </div>
 
