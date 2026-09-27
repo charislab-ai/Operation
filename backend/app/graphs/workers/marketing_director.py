@@ -8,6 +8,7 @@ from app.db.supabase_client import get_supabase
 from app.graphs.schemas import CreativeBrief, DirectorReview
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import (
+    account_brand,
     addressing_note,
     append_download_cta,
     benchmark_slice,
@@ -32,7 +33,26 @@ BRIEF_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. CEO의 �
 형식(format), 그리고 슬라이드/컷별 주제 목록(slide_topics)을 정하세요. 채널이 명시되지 않으면 지시
 맥락상 가장 적합한 채널 하나를 고르세요.
 
-**형식(format) 선택**: card_news(기존 카드뉴스)와 instatoon(마스코트 말풍선 만화) 중에서 상황과
+**가장 중요 - 이건 "앱 소개"가 아니라 "저장하고 싶은 정보"여야 합니다(실측 근거)**:
+우리 계정 실제 성과를 보면 도달은 있었는데 **저장 0, 공유 0**이었습니다. 인스타 알고리즘은
+저장·공유를 가장 강한 신호로 보기 때문에, 이게 0이면 추가 배포가 멈춥니다. 원인은 콘텐츠가
+"우리 앱은 이런 걸 합니다"였기 때문입니다 - 저장할 이유가 없습니다.
+
+그래서 구성을 이렇게 잡으세요:
+- 주제를 **사람들이 실제로 검색하는 문제**로 잡는다(예: "아이폰에서 카톡 mp3 듣는 법",
+  "사진 수백 장 포토북으로 정리하는 법") - 제품명이 아니라 문제가 앞에 옵니다
+- 1번 장은 **그 문제를 그대로 말하는 문장**(검색어가 들어가야 나중에 검색으로도 유입됨)
+- 중간은 **따라 할 수 있는 단계나 비교**(1단계/2단계, Before-After, 체크리스트) - "나중에
+  필요할 때 다시 보려고" 저장하게 만드는 구조
+- 제품은 **해결책으로 자연스럽게 등장**시킵니다. 기능 나열은 하지 마세요
+- 마지막 장은 저장을 유도합니다(팔로우보다 저장이 먼저)
+
+**형식(format) 선택 - 실측 참고**: 우리 계정 데이터로는 릴스(세로 영상)가 피드 캐러셀보다
+평균 도달이 9배 높았습니다(릴스 28 vs 피드 3). 다만 카드뉴스/인스타툰을 만들면 같은 소재로
+쇼츠가 자동 생성되므로(추가 비용 없음), 형식 자체보다 **"영상으로 재활용했을 때도 읽히는
+구성"**인지를 신경 쓰세요 - 컷당 한 문장, 첫 3초에 문제 제시.
+
+card_news(기존 카드뉴스)와 instatoon(마스코트 말풍선 만화) 중에서 상황과
 벤치마킹 인사이트에 맞게 고르세요. 기능/스펙을 명확히 전달해야 하면 card_news, 짧고 공감 가는
 에피소드로 자연스럽게 제품을 소개하고 싶으면(요즘 유행하는 형식) instatoon이 적합합니다. CEO가
 형식을 직접 지정하지 않았다면 매번 같은 형식만 고르지 말고 적극적으로 섞어서 다양성을 확보하세요.
@@ -99,7 +119,7 @@ async def marketing_director_brief_node(state: OSState, config: RunnableConfig) 
     insights = benchmark_slice(reports, "structure")
 
     user_content = (
-        f"{ceo_text}{addressing_note(state, 'marketing_director')}\n\n{context}"
+        f"{account_brand()}\n\n{ceo_text}{addressing_note(state, 'marketing_director')}\n\n{context}"
         + (f"\n\n{campaign_context}" if campaign_context else "")
         + (f"\n\n[벤치마킹 - 콘텐츠 구성 관련 발췌]\n{insights}" if insights else "")
     )

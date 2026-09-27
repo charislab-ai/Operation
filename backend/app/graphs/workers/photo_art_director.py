@@ -14,6 +14,7 @@ from app.db.supabase_client import get_supabase
 from app.graphs.schemas import PhotoPlan
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import (
+    account_brand,
     addressing_note,
     benchmark_slice,
     brand_book,
@@ -112,6 +113,7 @@ async def photo_art_director_node(state: OSState, config: RunnableConfig) -> dic
     insights = benchmark_slice(reports, "photo")
 
     user_content = (
+        f"{account_brand()}\n\n"
         f"[CEO 원본 지시문]\n{original_ceo_text(state)}{addressing_note(state, 'photo_art_director')}\n\n"
         f"{brand_book(product_row)}\n\n"
         f"제품: {brief['product']}\n"

@@ -811,3 +811,34 @@ export async function refreshPerformance(): Promise<{ updated: number }> {
   if (!res.ok) throw new Error((await res.json()).detail ?? "refresh failed");
   return res.json();
 }
+
+// ── 계정 브랜드 정체성 ───────────────────────────────────────────────────────
+// 여러 앱을 인스타 계정 하나로 홍보하는 구조라, 앱별 브랜드북과 별개로 "이 계정이 무엇을
+// 하는 곳인가"를 정해 마케팅 직원 전원이 공유한다.
+
+export interface BrandIdentity {
+  account_name: string | null;
+  positioning: string | null;
+  tone_of_voice: string | null;
+  audience: string | null;
+  content_pillars: string | null;
+  cta_style: string | null;
+  core_hashtags: string | null;
+  banned: string | null;
+}
+
+export async function getBrandIdentity(): Promise<BrandIdentity> {
+  const res = await fetch(`${API_BASE}/marketing/brand-identity`, { headers: authHeaders() });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "brand identity load failed");
+  return res.json();
+}
+
+export async function updateBrandIdentity(patch: Partial<BrandIdentity>): Promise<BrandIdentity> {
+  const res = await fetch(`${API_BASE}/marketing/brand-identity`, {
+    method: "PATCH",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error((await res.json()).detail ?? "brand identity update failed");
+  return res.json();
+}

@@ -4,8 +4,11 @@ import {
   deleteProductAsset,
   listProductAssets,
   listProducts,
+  getBrandIdentity,
   regenerateMascot,
   screenRecordingToShorts,
+  updateBrandIdentity,
+  type BrandIdentity,
   updateProduct,
   updateProductAsset,
   uploadProductAsset,
@@ -189,6 +192,10 @@ export default function AppManagementView() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // 앱 화면 녹화로 만든 쇼츠 URL(제품별) - 업로드 직후 바로 확인할 수 있게
   const [shortsUrl, setShortsUrl] = useState<Record<string, string>>({});
+  // 계정 브랜드 정체성 - 앱이 아니라 "계정" 단위. 사람들은 앱이 아니라 계정을 팔로우한다.
+  const [brand, setBrand] = useState<BrandIdentity | null>(null);
+  const [brandDraft, setBrandDraft] = useState<BrandIdentity | null>(null);
+  const [savingBrand, setSavingBrand] = useState(false);
 
   // 스크린샷 등록 대기열 - 예전엔 파일을 고르는 즉시 설명 없이 올라가서, 매번 "수정"으로
   // 다시 들어가 설명을 적어야 했다(CEO 지적). 이제 고른 뒤 설명을 적고 등록한다. 여러 장 동시 지원.
@@ -222,6 +229,12 @@ export default function AppManagementView() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    getBrandIdentity()
+      .then(setBrand)
+      .catch(() => undefined);
   }, []);
 
   const startEditInfo = (p: ProductOut) => {
@@ -412,6 +425,84 @@ export default function AppManagementView() {
         className="hidden"
         onChange={handleFileSelected}
       />
+
+      {/* 계정 브랜드 정체성 - 여러 앱을 한 계정으로 홍보하므로, 앱별 톤만 지키면 계정이
+          앱마다 따로 노는 잡탕이 된다. 여기서 정한 내용을 마케팅 직원 전원이 참조한다. */}
+      {brand && (
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <h2 className="text-sm font-medium text-slate-300">계정 브랜드</h2>
+            <span className="text-xs text-slate-500">
+              앱 하나가 아니라 계정 전체의 정체성 — 카피·연출·조판·검수 전 직원이 이 기준을 따릅니다
+            </span>
+            {!brandDraft ? (
+              <button
+                onClick={() => setBrandDraft({ ...brand })}
+                className="ml-auto rounded border border-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-800"
+              >
+                수정
+              </button>
+            ) : (
+              <div className="ml-auto flex gap-1">
+                <button
+                  onClick={async () => {
+                    if (!brandDraft) return;
+                    setSavingBrand(true);
+                    try {
+                      setBrand(await updateBrandIdentity(brandDraft));
+                      setBrandDraft(null);
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setSavingBrand(false);
+                    }
+                  }}
+                  disabled={savingBrand}
+                  className="rounded bg-brand-purple px-2 py-1 text-xs text-white disabled:opacity-50"
+                >
+                  {savingBrand ? "저장 중..." : "저장"}
+                </button>
+                <button
+                  onClick={() => setBrandDraft(null)}
+                  className="rounded border border-slate-700 px-2 py-1 text-xs text-slate-400"
+                >
+                  취소
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
+            {(
+              [
+                ["account_name", "계정 이름"],
+                ["positioning", "이 계정이 하는 일"],
+                ["tone_of_voice", "말투"],
+                ["audience", "독자"],
+                ["content_pillars", "다루는 주제"],
+                ["cta_style", "행동 유도 방식"],
+                ["core_hashtags", "공통 해시태그"],
+                ["banned", "쓰지 않는 표현"],
+              ] as [keyof BrandIdentity, string][]
+            ).map(([key, label]) => (
+              <label key={key} className="text-[11px] text-slate-500">
+                {label}
+                {brandDraft ? (
+                  <textarea
+                    value={brandDraft[key] ?? ""}
+                    onChange={(e) => setBrandDraft({ ...brandDraft, [key]: e.target.value })}
+                    rows={2}
+                    className="mt-1 w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                  />
+                ) : (
+                  <div className="mt-1 rounded border border-slate-800 bg-slate-950 px-2 py-1.5 text-xs text-slate-300">
+                    {brand[key] || <span className="text-slate-600">비어 있음</span>}
+                  </div>
+                )}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 등록 대기 화면 - 설명을 적은 뒤 등록한다(여러 장 일괄 가능) */}
       {pendingUploadProduct && pendingFiles.length > 0 && (

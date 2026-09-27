@@ -12,6 +12,7 @@ from app.db.agent_runs import finish_run, start_run
 from app.graphs.schemas import CopyPlan
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import (
+    account_brand,
     addressing_note,
     benchmark_slice,
     brand_book,
@@ -29,6 +30,11 @@ SYSTEM_PROMPT_CARD_NEWS = """당신은 CharisLab의 카피라이터입니다. �
 문구"만 씁니다 - 게시물 캡션과 해시태그는 소셜 에디터가 따로 쓰고 있으니 신경 쓰지 마세요.
 
 마케팅 디렉터가 정한 장별 주제(slide_topics)와 같은 개수·순서로 headline/subtext를 쓰세요.
+
+**저장을 부르는 문구를 쓰세요(실측 근거)**: 우리 계정은 도달은 있었는데 저장·공유가 0이었고,
+그래서 알고리즘이 더 퍼뜨리지 않았습니다. "좋은 앱이네"는 저장되지 않습니다. **"나중에 필요할
+때 다시 봐야겠다"**가 저장을 만듭니다 - 단계·수치·조건을 문구에 담으세요
+(예: "3단계면 끝" / "아이폰만 되는 이유" / "이 설정만 바꾸면").
 
 작성 규칙:
 - headline은 15자 내외. 스와이프를 멈추게 하는 게 유일한 목적이니, 설명하지 말고 찌르세요
@@ -64,6 +70,7 @@ async def copywriter_node(state: OSState, config: RunnableConfig) -> dict:
     insights = benchmark_slice(reports, "copy")
 
     user_content = (
+        f"{account_brand()}\n\n"
         f"[CEO 원본 지시문]\n{original_ceo_text(state)}{addressing_note(state, 'copywriter')}\n\n"
         f"{brand_book(product_row)}\n\n"
         f"제품: {brief['product']} / 채널: {brief['channel']}\n"

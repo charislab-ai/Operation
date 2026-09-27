@@ -701,3 +701,51 @@ async def refresh_performance() -> dict:
     updated = await collect_post_insights()
     snap = await snapshot_account()
     return {"updated": updated, "account": snap}
+
+
+# ---------------------------------------------------------------------------
+# 계정 브랜드 정체성 - 여러 앱을 한 계정으로 홍보하는 구조라, 앱별 브랜드북과 별개로
+# "이 계정이 무엇을 하는 곳인가"를 정해 전 직원이 공유한다.
+# ---------------------------------------------------------------------------
+
+
+class BrandIdentityOut(BaseModel):
+    account_name: str | None
+    positioning: str | None
+    tone_of_voice: str | None
+    audience: str | None
+    content_pillars: str | None
+    cta_style: str | None
+    core_hashtags: str | None
+    banned: str | None
+
+
+class BrandIdentityUpdate(BaseModel):
+    account_name: str | None = None
+    positioning: str | None = None
+    tone_of_voice: str | None = None
+    audience: str | None = None
+    content_pillars: str | None = None
+    cta_style: str | None = None
+    core_hashtags: str | None = None
+    banned: str | None = None
+
+
+@router.get("/brand-identity", response_model=BrandIdentityOut)
+def get_brand_identity() -> dict:
+    rows = get_supabase().table("brand_identity").select("*").eq("id", 1).execute().data
+    return rows[0] if rows else {k: None for k in BrandIdentityOut.model_fields}
+
+
+@router.patch("/brand-identity", response_model=BrandIdentityOut)
+def update_brand_identity(payload: BrandIdentityUpdate) -> dict:
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="수정할 값이 없습니다")
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    supabase = get_supabase()
+    if supabase.table("brand_identity").select("id").eq("id", 1).execute().data:
+        supabase.table("brand_identity").update(updates).eq("id", 1).execute()
+    else:
+        supabase.table("brand_identity").insert({**updates, "id": 1}).execute()
+    return get_brand_identity()

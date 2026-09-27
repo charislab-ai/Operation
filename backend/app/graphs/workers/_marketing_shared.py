@@ -155,6 +155,37 @@ _EMPLOYEE_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _EMPLOYEE_TTL_SECONDS = 60
 
 
+def account_brand() -> str:
+    """계정 차원의 브랜드 정체성 - 앱별 브랜드북과 별개로 전 직원이 공유한다.
+
+    Why: 인스타 계정 하나로 여러 앱(ChaMu·SNAPTAIL·터치러쉬)을 홍보하는 구조라, 앱별 톤만
+    지키면 계정 전체가 앱마다 따로 노는 잡탕이 된다. 사람들은 "앱"이 아니라 "계정"을
+    팔로우하므로, 계정이 무엇을 하는 곳인지가 일관돼야 팔로우할 이유가 생긴다.
+    """
+    try:
+        rows = get_supabase().table("brand_identity").select("*").eq("id", 1).execute().data
+    except Exception:
+        return ""
+    if not rows:
+        return ""
+    row = rows[0]
+    lines = [f"[계정 정체성 - 이 계정은 여러 앱을 함께 홍보하는 하나의 계정입니다]"]
+    for label, key in (
+        ("계정", "account_name"),
+        ("이 계정이 하는 일", "positioning"),
+        ("말투", "tone_of_voice"),
+        ("독자", "audience"),
+        ("다루는 주제", "content_pillars"),
+        ("행동 유도 방식", "cta_style"),
+        ("공통 해시태그", "core_hashtags"),
+        ("쓰지 않는 표현", "banned"),
+    ):
+        value = (row.get(key) or "").strip()
+        if value:
+            lines.append(f"- {label}: {value}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 def fetch_employees(force: bool = False) -> list[dict]:
     """직원 명단(이름/직함/상태). 이름 기반 지목 라우팅과 프롬프트의 자기소개에 쓴다.
 

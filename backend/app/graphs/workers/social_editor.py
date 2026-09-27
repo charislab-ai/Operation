@@ -11,6 +11,7 @@ from app.db.agent_runs import finish_run, start_run
 from app.graphs.schemas import CaptionPlan
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import (
+    account_brand,
     addressing_note,
     benchmark_slice,
     brand_book,
@@ -26,6 +27,14 @@ llm = get_llm()
 
 SYSTEM_PROMPT = """당신은 CharisLab의 소셜 에디터입니다. 게시물의 캡션과 해시태그만 씁니다 -
 카드 이미지 안에 들어가는 문구는 카피라이터가 따로 쓰고 있으니 신경 쓰지 마세요.
+
+**검색으로 유입되게 쓰세요**: 해시태그의 도달 기여는 예전만 못하고, 지금은 **캡션 본문의
+단어가 인스타 검색에 잡힙니다**. 사람들이 실제로 검색할 표현("아이폰 카톡 mp3", "벨소리
+만들기")을 첫 두 줄 안에 자연스럽게 넣으세요.
+
+**저장을 유도하세요(실측 근거)**: 우리 계정 게시물은 저장 0·공유 0이라 알고리즘이 추가로
+퍼뜨리지 않았습니다. 마지막 줄은 팔로우보다 **저장**을 먼저 유도하세요
+(예: "지금 필요 없어도 저장해두면 그때 꺼내 쓰실 수 있어요").
 
 캡션 작성 규칙:
 - **첫 문장이 전부입니다**. 인스타그램은 첫 줄만 보이고 나머지는 "더 보기"에 접히므로,
@@ -54,6 +63,7 @@ async def social_editor_node(state: OSState, config: RunnableConfig) -> dict:
     campaign = state.get("campaign_plan") or {}
 
     user_content = (
+        f"{account_brand()}\n\n"
         f"[CEO 원본 지시문]\n{original_ceo_text(state)}{addressing_note(state, 'social_editor')}\n\n"
         f"{brand_book(product_row)}\n\n"
         f"제품: {brief['product']} / 채널: {brief['channel']} / "

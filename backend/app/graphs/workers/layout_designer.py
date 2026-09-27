@@ -13,6 +13,7 @@ from app.db.supabase_client import get_supabase
 from app.graphs.schemas import LayoutPlan
 from app.graphs.state import OSState
 from app.graphs.workers._marketing_shared import (
+    account_brand,
     addressing_note,
     benchmark_slice,
     brand_book,
@@ -84,6 +85,7 @@ async def layout_designer_node(state: OSState, config: RunnableConfig) -> dict:
     insights = benchmark_slice(reports, "layout")
 
     user_content = (
+        f"{account_brand()}\n\n"
         f"[CEO 원본 지시문]\n{original_ceo_text(state)}{addressing_note(state, 'layout_designer')}\n\n"
         f"{brand_book(product_row)}\n\n"
         f"제품: {brief['product']}\n"
