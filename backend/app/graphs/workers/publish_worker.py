@@ -25,8 +25,16 @@ def _download_comment_text(product: str) -> str | None:
     return f"📲 {product} 다운로드 (무료)\n" + "\n".join(links)
 
 
-async def _post_download_comment(poster, post_id: str, product: str) -> str | None:
-    """게시물 첫 댓글에 앱 다운로드 링크를 단다. 실패하면 None(게시는 이미 끝났으므로 막지 않음)."""
+async def _post_download_comment(poster, post_id: str, product: str, channel: str) -> str | None:
+    """인스타그램 게시물 첫 댓글에 앱 다운로드 링크를 단다.
+
+    인스타만 하는 이유: 인스타는 캡션 안 URL이 클릭되지 않아 첫 댓글이 사실상 유일한 링크
+    경로다. 반면 페이스북은 본문 링크가 그대로 눌리므로 댓글이 불필요하고, 댓글을 달려면
+    pages_manage_engagement 권한이 따로 필요해 실패 알림만 늘어난다(실측으로 확인).
+    실패해도 게시는 이미 끝났으므로 None만 돌려주고 막지 않는다.
+    """
+    if channel != "instagram":
+        return None
     if not hasattr(poster, "post_comment"):
         return None  # mock 어댑터 등 - 댓글 개념이 없는 경로
     message = _download_comment_text(product)
@@ -61,7 +69,9 @@ async def publish_worker_node(state: OSState, config: RunnableConfig) -> dict:
     # 인스타그램은 캡션 안 URL이 클릭되지 않아, 다운로드 링크를 첫 댓글로 단다(실무 표준).
     # 토큰에 instagram_manage_comments 권한이 없으면 실패하지만, 그때는 조용히 넘기고 CEO에게
     # 알림 문구로 알려 직접 달 수 있게 한다(게시 자체는 이미 성공).
-    comment_link = await _post_download_comment(poster, result.post_id, post["product"])
+    comment_link = await _post_download_comment(
+        poster, result.post_id, post["product"], post["channel"]
+    )
 
     finish_run(
         run_id,
@@ -73,16 +83,15 @@ async def publish_worker_node(state: OSState, config: RunnableConfig) -> dict:
     # 댓글 권한(instagram_manage_comments / pages_manage_engagement)이 없으면 자동 등록이
     # 실패한다. 그때는 붙여넣을 문구를 그대로 보내줘서 CEO가 한 번에 복사해 달 수 있게 한다.
     paste_text = _download_comment_text(post["product"])
-    comment_note = (
-        "\n💬 다운로드 링크를 첫 댓글로 등록했습니다"
-        if comment_link
-        else (
-            "\n⚠️ 댓글 권한이 없어 자동 등록에 실패했습니다. 아래 문구를 첫 댓글로 달아주세요:\n\n"
-            f"{paste_text}"
-            if paste_text
-            else "\n⚠️ 댓글 권한이 없어 자동 등록에 실패했습니다"
+    if comment_link:
+        comment_note = "\n💬 다운로드 링크를 첫 댓글로 등록했습니다"
+    elif post["channel"] == "instagram" and paste_text:
+        # 인스타인데 실패했다면 권한 문제 - 붙여넣을 문구를 그대로 실어 보낸다
+        comment_note = (
+            "\n⚠️ 댓글 자동 등록에 실패했습니다. 아래 문구를 첫 댓글로 달아주세요:\n\n" f"{paste_text}"
         )
-    )
+    else:
+        comment_note = ""  # 페이스북 등 - 본문 링크가 눌리므로 댓글이 필요 없다
     try:
         await notify_ceo(f"🚀 {post['product']} · {post['channel']} 게시 완료\n{link_text}{comment_note}")
     except Exception:
