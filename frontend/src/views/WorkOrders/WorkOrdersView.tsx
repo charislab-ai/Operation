@@ -667,6 +667,34 @@ export default function WorkOrdersView() {
                           </div>
                         </>
                       )}
+                      {/* 쇼츠/릴스 영상 - 카드와 같은 소재로 만든 세로 영상(추가 비용 없음) */}
+                      {outputs.marketing_post.video_url ? (
+                        <div className="mt-3">
+                          <div className="mb-1 text-xs font-medium text-slate-400">🎬 쇼츠 / 릴스</div>
+                          <video
+                            src={String(outputs.marketing_post.video_url)}
+                            controls
+                            className="max-h-80 w-auto rounded border border-slate-800"
+                          />
+                        </div>
+                      ) : null}
+                      {/* 실제 게시된 링크 - 직접 올린 건도 여기서 바로 확인할 수 있게 */}
+                      {Array.isArray(outputs.marketing_post.permalinks) &&
+                      (outputs.marketing_post.permalinks as string[]).length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-3">
+                          {(outputs.marketing_post.permalinks as string[]).map((link) => (
+                            <a
+                              key={link}
+                              href={link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-brand-purple underline"
+                            >
+                              {link.includes("/reel/") ? "🎬 릴스 보기" : "📷 게시물 보기"}
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                       {outputs.marketing_post.director_notes ? (
                         <div className="mt-2 text-xs text-slate-500">
                           🎬 디렉터 소견: {String(outputs.marketing_post.director_notes)}

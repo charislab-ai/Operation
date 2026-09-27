@@ -488,6 +488,15 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
     )
     if edited and edited.get("payload"):
         marketing_post = {k: v for k, v in edited["payload"].items() if k != "type"}
+    elif not marketing_post:
+        # 체크포인트가 없는 지시(시스템 밖에서 만들어 등록한 콘텐츠 등)도 산출물이 보여야 한다 -
+        # 결재 카드 payload가 marketing_post와 같은 모양이므로 그대로 쓴다.
+        fallback = next(
+            (a for a in reversed(approvals) if a["target_type"] == "marketing_post" and a.get("payload")),
+            None,
+        )
+        if fallback:
+            marketing_post = {k: v for k, v in fallback["payload"].items() if k != "type"}
 
     return {
         "thread_id": thread_id,
