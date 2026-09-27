@@ -37,11 +37,24 @@ def _split_system_and_prompt(messages: list[Message]) -> tuple[str | None, str]:
     return ("\n\n".join(system_parts) or None, "\n\n".join(user_parts))
 
 
-async def _run_cli(system: str | None, prompt: str, json_schema: dict | None = None) -> dict:
+# 단순 작업에는 가벼운 모델을 쓴다 - 구독 사용량은 상위 모델이 훨씬 빨리 소모되므로,
+# 품질 차이가 성과로 이어지는 자리(카피·연출·조판·검수)에 몰아준다.
+_LIGHT_AGENTS = {"Supervisor"}
+
+
+def _model_for(agent_name: str | None) -> str:
+    return settings.claude_cli_light_model if agent_name in _LIGHT_AGENTS else settings.claude_cli_model
+
+
+async def _run_cli(
+    system: str | None, prompt: str, json_schema: dict | None = None, agent_name: str | None = None
+) -> dict:
     args = [
         "claude",
         "-p",
         prompt,
+        "--model",
+        _model_for(agent_name),
         "--output-format",
         "json",
         "--tools",
@@ -118,7 +131,7 @@ class ClaudeCLIProvider:
     ) -> str:
         _require_text_only(messages)
         system, prompt = _split_system_and_prompt(messages)
-        response = await _run_cli(system, prompt)
+        response = await _run_cli(system, prompt, agent_name=agent_name)
         _log_cli_usage(response, thread_id, agent_name)
         return response.get("result", "")
 
@@ -132,7 +145,9 @@ class ClaudeCLIProvider:
     ) -> SchemaT:
         _require_text_only(messages)
         system, prompt = _split_system_and_prompt(messages)
-        response = await _run_cli(system, prompt, json_schema=schema.model_json_schema())
+        response = await _run_cli(
+            system, prompt, json_schema=schema.model_json_schema(), agent_name=agent_name
+        )
         _log_cli_usage(response, thread_id, agent_name)
         structured = response.get("structured_output")
         if structured is None:

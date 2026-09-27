@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # `claude setup-token`으로 발급한 구독 인증 토큰. 있으면 Claude Code CLI가 구독 사용량으로
     # 동작하고(비용 0), 없거나 한도를 넘으면 anthropic_api_key로 폴백한다.
     claude_code_oauth_token: str = ""
+    # CLI(구독)에서 쓸 모델. 마케팅 카피·연출·검수처럼 뉘앙스가 성과를 가르는 일은 상위 모델을
+    # 쓰고(구독이라 추가 비용 없음), 단순 라우팅은 가벼운 모델로 구독 사용량을 아낀다.
+    claude_cli_model: str = "claude-opus-5"
+    claude_cli_light_model: str = "claude-sonnet-5"
     openai_api_key: str = ""
     google_gemini_api_key: str = ""
 
