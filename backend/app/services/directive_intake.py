@@ -3,6 +3,7 @@
 그래프에 전달될 뿐이며, 이 단계에서는 어떤 워커도 비전 모델로 내용을 분석하지 않는다
 (범위 밖, 추후 별도 기능)."""
 
+import logging
 import mimetypes
 import uuid
 from dataclasses import dataclass
@@ -11,7 +12,25 @@ from app.db.supabase_client import get_supabase
 from app.services.failures import record_graph_failure
 from app.tools.telegram_bot import send_approval_request
 
+logger = logging.getLogger(__name__)
+
 DIRECTIVE_MEDIA_BUCKET = "directive-media"
+# CEO가 업무지시에 첨부하는 파일(내부 문서·스크린샷 등)이 들어가는 곳이라 비공개 버킷이다.
+# 공개 URL은 주소만 알면 누구나 열 수 있어서, 화면에 보여줄 때마다 유효기간이 있는
+# 서명 URL을 새로 발급한다(마케팅 이미지 버킷은 메타가 받아가야 해서 공개인 것과 다르다).
+MEDIA_URL_TTL_SECONDS = 60 * 60 * 6  # 6시간 - 결재 화면을 열어두고 보는 시간엔 충분하다
+
+
+def media_url(supabase, storage_path: str) -> str:
+    """첨부파일을 볼 수 있는 서명 URL을 발급한다. 실패하면 빈 문자열(화면이 깨지지 않게)."""
+    try:
+        signed = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET).create_signed_url(
+            storage_path, MEDIA_URL_TTL_SECONDS
+        )
+        return signed.get("signedURL") or signed.get("signedUrl") or ""
+    except Exception:
+        logger.exception("첨부파일 서명 URL 발급 실패: %s", storage_path)
+        return ""
 
 
 @dataclass
@@ -32,7 +51,7 @@ def upload_one_media(supabase, thread_id: str, media: UploadedMediaRef) -> dict:
 
     bucket = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET)
     bucket.upload(storage_path, media.content, {"content-type": mime_type})
-    url = bucket.get_public_url(storage_path)
+    url = media_url(supabase, storage_path)
 
     row = (
         supabase.table("directive_media")

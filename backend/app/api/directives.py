@@ -9,6 +9,7 @@ from app.db.supabase_client import get_supabase
 from app.graphs import task_registry
 from app.services.directive_intake import (
     DIRECTIVE_MEDIA_BUCKET,
+    media_url,
     UploadedMediaRef,
     create_directive_and_run,
     upload_one_media,
@@ -204,7 +205,7 @@ def update_directive_media(thread_id: str, media_id: str, payload: DirectiveMedi
     if not result.data:
         raise HTTPException(status_code=404, detail="media not found")
     row = result.data[0]
-    url = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET).get_public_url(row["storage_path"])
+    url = media_url(supabase, row["storage_path"])
     return {"id": row["id"], "media_type": row["media_type"], "url": url, "caption": row["caption"]}
 
 
@@ -462,13 +463,13 @@ async def get_directive_detail(thread_id: str, request: Request) -> dict:
         .execute()
         .data
     )
-    media_bucket = supabase.storage.from_(DIRECTIVE_MEDIA_BUCKET)
     media = [
         {
             "id": m["id"],
             "media_type": m["media_type"],
             "caption": m["caption"],
-            "url": media_bucket.get_public_url(m["storage_path"]),
+            # 비공개 버킷이라 볼 때마다 서명 URL을 새로 발급한다(유효기간 6시간)
+            "url": media_url(supabase, m["storage_path"]),
         }
         for m in media_rows
     ]
