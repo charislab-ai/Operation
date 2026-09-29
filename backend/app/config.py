@@ -6,6 +6,8 @@ class Settings(BaseSettings):
 
     supabase_url: str = ""
     supabase_service_role_key: str = ""
+    # 공개 키 - RLS가 실제로 외부 접근을 막고 있는지 헬스체크에서 확인하는 용도로만 쓴다
+    supabase_anon_key: str = ""
     supabase_db_url: str = ""
 
     google_oauth_client_id: str = ""

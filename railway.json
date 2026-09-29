@@ -4,9 +4,7 @@
     "builder": "DOCKERFILE",
     "dockerfilePath": "Dockerfile",
     "buildArgs": {
-      "VITE_GOOGLE_OAUTH_CLIENT_ID": "${{VITE_GOOGLE_OAUTH_CLIENT_ID}}",
-      "VITE_SUPABASE_URL": "${{VITE_SUPABASE_URL}}",
-      "VITE_SUPABASE_ANON_KEY": "${{VITE_SUPABASE_ANON_KEY}}"
+      "VITE_GOOGLE_OAUTH_CLIENT_ID": "${{VITE_GOOGLE_OAUTH_CLIENT_ID}}"
     }
   },
   "deploy": {
