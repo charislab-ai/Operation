@@ -45,6 +45,13 @@ export default function PostPreviewModal({
 }) {
   const isInstatoon = post.format === "instatoon";
   const product = String(post.product ?? "");
+  // 공유·저장·검색 장치(마케팅 디렉터가 캡션에 심고 인용해 온 문장). 결재 전에 "퍼질 글인가"를
+  // 캡션 전문을 다 읽지 않고도 판단할 수 있게 따로 보여준다. 비어 있으면 그 자체가 경고다.
+  const engagement = (post.engagement ?? null) as {
+    share?: string;
+    save?: string;
+    search?: string;
+  } | null;
 
   const [images, setImages] = useState<string[]>(
     (Array.isArray(post.image_urls) ? post.image_urls : []) as string[],
@@ -386,6 +393,25 @@ export default function PostPreviewModal({
               </div>
               {post.director_notes ? (
                 <div className="text-xs text-slate-500">🎬 {String(post.director_notes)}</div>
+              ) : null}
+              {engagement ? (
+                <div className="space-y-1 rounded border border-slate-800 bg-slate-900/60 px-2 py-1.5 text-xs">
+                  <div className="font-medium text-slate-300">퍼짐 장치 - 이 글이 왜 퍼질 수 있는지</div>
+                  {([
+                    ["공유", "📤", engagement.share],
+                    ["저장", "📌", engagement.save],
+                    ["검색", "🔎", engagement.search],
+                  ] as const).map(([label, icon, value]) => (
+                    <div key={label} className="flex gap-1.5">
+                      <span className={value ? "text-slate-500" : "text-amber-500"}>
+                        {icon} {label}
+                      </span>
+                      <span className={value ? "text-slate-400" : "text-amber-400"}>
+                        {value || "장치 없음 - 이대로면 알고리즘이 더 퍼뜨리지 않습니다"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               ) : null}
               {post.qa_summary ? (
                 <div

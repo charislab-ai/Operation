@@ -171,7 +171,26 @@ class CampaignPlan(BaseModel):
 
 
 class DirectorReview(BaseModel):
-    final_caption: str = Field(description="콘텐츠 전략가의 캡션을 검토해 필요하면 다듬은 최종본")
+    """마케팅 디렉터 최종 검토 - 단순 교열이 아니라 "퍼질 수 있는 글인가"를 판정하고 고친다.
+
+    실측 근거: 우리 계정 게시물은 도달은 있었는데 저장 0·공유 0이었다. 인스타는 공유>저장>
+    댓글>좋아요 순으로 강한 신호로 보므로, 이 장치들이 빠진 캡션은 알고리즘이 더 퍼뜨리지 않는다.
+    """
+
+    final_caption: str = Field(
+        description="최종 캡션. 아래 세 장치가 빠져 있으면 **직접 넣어서** 완성할 것 - "
+        "지적만 하지 말고 고친 결과를 내놓으세요"
+    )
+    share_trigger: str = Field(
+        description="캡션에 들어간 '공유 장치' - 보낼 사람을 구체적으로 지목하는 문장을 그대로 인용. "
+        "사람들은 좋은 글이 아니라 '이거 네 얘기야'를 공유한다"
+    )
+    save_trigger: str = Field(
+        description="캡션에 들어간 '저장 장치' - 나중에 다시 꺼내 볼 이유를 주는 문장을 그대로 인용"
+    )
+    search_keyword: str = Field(
+        description="캡션 첫 두 줄에 들어간 검색 유입 키워드(사람들이 실제로 검색할 표현)"
+    )
     director_notes: str = Field(description="검토 소견 1~2문장 - CEO 승인 카드에 노출됨")
 
 

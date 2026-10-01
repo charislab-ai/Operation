@@ -22,6 +22,7 @@ def _marketing_payload(state: OSState) -> dict:
         "director_notes": post.get("director_notes"),
         # 브랜드 QA가 완성 카드를 직접 보고 남긴 검수 소견 - CEO가 결재 전에 같이 본다.
         "qa_summary": (state.get("qa_report") or {}).get("summary"),
+        "engagement": post.get("engagement"),  # 공유·저장·검색 장치 - 퍼짐의 근거
         "qa_issues": (state.get("qa_report") or {}).get("issues", []),
     }
 

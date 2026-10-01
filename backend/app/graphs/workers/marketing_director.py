@@ -20,6 +20,7 @@ from app.graphs.workers._marketing_shared import (
 from app.tools.ai.image.card_composer import compose_instatoon_panel, compose_marketing_card
 from app.tools.ai.image.card_renderer import DEFAULT_BRAND
 from app.tools.ai.image.mascot import ensure_mascot
+from app.services.photo_check import MAX_REGENERATIONS, verify_photo
 from app.tools.ai.image.storage import upload_marketing_image
 from app.tools.ai.llm import get_llm
 from app.tools.ai.llm.base import Message
@@ -82,9 +83,22 @@ instatoon은 4~6개, 기승전결 구조로: 기(1컷, 상황 설정) → 승(1~
 
 DIRECTOR_REVIEW_PROMPT = """당신은 CharisLab의 마케팅 디렉터입니다. 네 전문가(카피라이터, 소셜
 에디터, 포토 아트디렉터, 레이아웃 디자이너)가 서로 못 본 채 만든 결과물이 하나의 게시물로
-어울리는지 검토하세요. 소셜 에디터의 캡션이 카드 내용과 맞지 않거나 어색하면 다듬어
-최종본(final_caption)으로 확정하고(해시태그는 그대로 두세요 - 뒤에 자동으로 붙습니다),
-검토 소견(director_notes)을 1~2문장으로 남기세요(CEO가 승인 카드에서 보게 됩니다)."""
+어울리는지 검토하고, **퍼질 수 있는 글인지** 판정해 직접 고칩니다.
+
+**이 검토의 목적은 교열이 아닙니다.** 우리 계정 실측 결과 도달은 있었는데 저장 0·공유 0이었고,
+그래서 알고리즘이 더 퍼뜨리지 않았습니다. 인스타는 **공유 > 저장 > 댓글 > 좋아요** 순으로 강한
+신호로 봅니다. 아래 세 장치가 캡션에 없으면 **당신이 직접 넣어 final_caption을 완성하세요.**
+
+1. **공유 장치(가장 중요)** - 보낼 사람을 구체적으로 지목하는 문장.
+   사람들은 "좋은 글"을 공유하지 않고 "이거 네 얘기야"를 공유합니다.
+   예: "아이폰 쓰는 친구한테 보내주세요" / "사진 정리 못 하는 사람 한 명 떠오르죠? 태그해주세요"
+2. **저장 장치** - 지금 당장 안 써도 나중에 다시 꺼내 볼 이유.
+   예: "폰 바꿀 때 다시 찾게 됩니다. 저장해두세요"
+3. **검색 키워드** - 첫 두 줄 안에 사람들이 실제로 검색할 표현(해시태그 말고 본문 단어).
+
+세 장치를 넣되 **억지로 욱여넣지 마세요** - 캡션 흐름 안에서 자연스러워야 합니다. 세 문장을
+나열하면 광고처럼 읽혀 오히려 역효과입니다. 해시태그는 그대로 두세요(뒤에 자동으로 붙습니다).
+director_notes에는 검토 소견을 1~2문장으로 남기세요(CEO가 승인 카드에서 봅니다)."""
 
 
 async def marketing_director_brief_node(state: OSState, config: RunnableConfig) -> dict:
@@ -262,6 +276,8 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
     brand_color = hex_to_rgb(product_row.get("brand_color")) or DEFAULT_BRAND
     total = len(merged_slides)
     image_urls = []
+    photo_checks: list[dict] = []  # 사진 자가 검증 기록(결재 카드에서 확인 가능)
+    regenerated = 0
 
     if brief.get("format") == "instatoon":
         # 인스타툰: 마스코트 참조 이미지를 한 번만 준비하고, 모든 컷에서 재사용해 캐릭터 외형을
@@ -321,6 +337,39 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
                     return_source=True,
                     **kwargs,
                 )
+
+                # 포토 아트디렉터 자가 검증: 생성된 사진을 직접 보고, 그 장의 내용을 보여주지
+                # 못하면 한 번 다시 만든다. 실제 스크린샷을 쓰거나 재사용한 사진은 검증 대상이
+                # 아니다(이미 검증된 자산이고, 재생성할 수도 없다).
+                is_generated = "illustration_bytes" not in kwargs
+                if is_generated and regenerated < MAX_REGENERATIONS:
+                    topic = brief["slide_topics"][i] if i < len(brief["slide_topics"]) else ""
+                    verdict = await verify_photo(
+                        source_bytes,
+                        topic,
+                        slide.get("headline", ""),
+                        slide.get("image_prompt", ""),
+                        thread_id=thread_id,
+                    )
+                    photo_checks.append({"slide": i + 1, "ok": verdict.ok, "reason": verdict.reason})
+                    if not verdict.ok:
+                        logger.info("%d번 장 사진 재생성: %s", i + 1, verdict.reason)
+                        slide["image_prompt"] = verdict.improved_prompt or slide["image_prompt"]
+                        try:
+                            card_bytes, source_bytes = await compose_marketing_card(
+                                slide["image_prompt"],
+                                slide.get("headline", ""),
+                                slide.get("subtext", ""),
+                                brief["product"],
+                                thread_id=thread_id,
+                                agent_name="PhotoArtDirector",
+                                return_source=True,
+                                **kwargs,
+                            )
+                            regenerated += 1
+                        except Exception:
+                            # 예산 초과 등으로 재생성이 막히면 처음 사진을 그대로 쓴다
+                            logger.exception("사진 재생성 실패 - 처음 사진을 사용")
                 # 원본 사진도 보관한다 - 편집기에서 문구/틀만 바꿔 다시 그릴 때 AI 재생성 없이
                 # 이 사진을 그대로 재사용하기 위함(수정 비용 0). 이전 회차 사진을 그대로 쓴
                 # 경우에는 같은 파일을 또 올리지 않고 기존 URL을 유지한다(스토리지 중복 방지).
@@ -365,6 +414,13 @@ async def marketing_synthesis_node(state: OSState, config: RunnableConfig) -> di
         "slides": merged_slides,
         "image_urls": image_urls,
         "video_url": video_url,  # 쇼츠/릴스 - 없을 수도 있음(렌더 실패 시)
+        "photo_checks": photo_checks,  # 사진 자가 검증 결과(어떤 장을 왜 다시 만들었는지)
+        # 퍼짐을 만드는 세 장치 - 결재 화면에서 "이 글이 왜 퍼질 수 있는지"를 바로 보게 한다
+        "engagement": {
+            "share": review.share_trigger,
+            "save": review.save_trigger,
+            "search": review.search_keyword,
+        },
         "director_notes": review.director_notes,
     }
     finish_run(run_id, marketing_post)
